@@ -1,0 +1,169 @@
+/* ==================================================
+   Code Flow Page Styles
+   Reference: Stitch Design - Screen 5
+   ================================================== */
+
+.flow-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--navbar-height));
+  overflow: hidden;
+}
+
+.flow-header-bar {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: rgba(9, 11, 16, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flow-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flow-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.flow-main-heading {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.flow-subheading {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Control Toolbar */
+.flow-toolbar {
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.flow-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.flow-endpoint-badge {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.http-method {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.flow-main-area {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  overflow: hidden;
+}
+
+.flow-visualizer-canvas {
+  position: relative;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.flow-diagram-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 30px;
+  overflow-x: auto;
+}
+
+.flow-node-card {
+  background-color: rgba(16, 20, 31, 0.95);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  min-width: 170px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  position: relative;
+}
+
+.flow-node-card.focused {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.35), 0 0 0 1px var(--accent-primary);
+}
+
+.flow-node-badge {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  display: inline-block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+
+.flow-node-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.flow-node-loc {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.flow-arrow {
+  color: var(--border-bright);
+  font-size: 16px;
+}
+
+/* Bottom Code Dock */
+.flow-bottom-dock {
+  height: 190px;
+  border-top: 1px solid var(--border-subtle);
+  background-color: #07090e;
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-sidebar-inspector {
+  background-color: rgba(11, 14, 21, 0.95);
+  border-left: 1px solid var(--border-subtle);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}

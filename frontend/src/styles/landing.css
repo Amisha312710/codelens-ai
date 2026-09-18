@@ -1,0 +1,260 @@
+/* ==================================================
+   Landing Page Styles
+   Reference: Stitch Design - Screen 1
+   ================================================== */
+
+.landing-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: calc(100vh - var(--navbar-height));
+  padding: 60px 24px 80px 24px;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.landing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  background-color: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  margin-bottom: 32px;
+}
+
+.landing-title {
+  font-size: clamp(40px, 6vw, 68px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin-bottom: 24px;
+}
+
+.landing-title-gradient {
+  background: var(--accent-text-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+}
+
+.landing-subtitle {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 620px;
+  margin-bottom: 40px;
+}
+
+/* Repo Input Container */
+.repo-input-wrapper {
+  width: 100%;
+  max-width: 660px;
+  margin-bottom: 16px;
+}
+
+.repo-input-bar {
+  display: flex;
+  align-items: center;
+  background-color: rgba(15, 19, 29, 0.9);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-full);
+  padding: 6px 8px 6px 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.repo-input-bar:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--accent-primary), 0 0 20px rgba(99, 102, 241, 0.2);
+}
+
+.repo-input-icon {
+  color: var(--text-secondary);
+  margin-right: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.repo-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  outline: none;
+}
+
+.repo-input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.repo-input-btn {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: filter 0.15s, transform 0.15s;
+}
+
+.repo-input-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.landing-meta-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.landing-flow-steps {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-bottom: 60px;
+}
+
+.landing-flow-active {
+  color: #a5b4fc;
+  font-weight: 500;
+}
+
+/* Mockup Preview Card */
+.landing-preview-window {
+  width: 100%;
+  max-width: 1060px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.preview-window-header {
+  height: 42px;
+  background-color: rgba(15, 19, 29, 0.8);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  position: relative;
+}
+
+.preview-window-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.window-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--border-medium);
+}
+
+.preview-window-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.preview-window-body {
+  display: grid;
+  grid-template-columns: 200px 1fr 280px;
+  min-height: 280px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.preview-col-files {
+  border-right: 1px solid var(--border-subtle);
+  padding: 16px;
+  background-color: rgba(9, 11, 16, 0.3);
+}
+
+.preview-col-code {
+  border-right: 1px solid var(--border-subtle);
+  padding: 16px;
+  background-color: var(--bg-primary);
+  line-height: 1.7;
+}
+
+.preview-col-topology {
+  padding: 16px;
+  background-color: rgba(9, 11, 16, 0.3);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.preview-col-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.preview-file-item {
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 2px;
+}
+
+.preview-file-item.active {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.code-keyword { color: #818cf8; }
+.code-fn { color: #38bdf8; }
+.code-str { color: #34d399; }
+.code-num { color: #f59e0b; }
+.code-line-num { color: var(--text-dim); margin-right: 12px; user-select: none; }
+
+@media (max-width: 860px) {
+  .preview-window-body {
+    grid-template-columns: 1fr;
+  }
+  .preview-col-files, .preview-col-topology {
+    display: none;
+  }
+}
