@@ -165,7 +165,6 @@ class AnalysisService:
         ]
 
         # 2. Build internal module lookup index from relative file paths
-        # Maps dotted module strings to relative file paths
         module_to_file: Dict[str, str] = {}
         for f in python_files:
             rel_path = f["relative_path"]
@@ -227,7 +226,6 @@ class AnalysisService:
                     if mod_str.startswith("."):
                         num_dots = len(mod_str) - len(mod_str.lstrip("."))
                         remainder = mod_str.lstrip(".")
-                        # Ascend num_dots - 1 directory levels
                         levels_up = num_dots - 1
                         if len(source_dir_parts) >= levels_up:
                             base_parts = source_dir_parts[:len(source_dir_parts) - levels_up] if levels_up > 0 else list(source_dir_parts)
@@ -243,7 +241,6 @@ class AnalysisService:
                             target_file = module_to_file[candidate_dotted]
                             is_internal = True
                         else:
-                            # If from . import sibling_module, check if sibling_module matches a file
                             for name in names:
                                 sibling_candidate = ".".join(base_parts + [name])
                                 if sibling_candidate in module_to_file:
@@ -256,15 +253,11 @@ class AnalysisService:
                             target_file = module_to_file[mod_str]
                             is_internal = True
                         else:
-                            # Check if local relative to current package
                             local_candidate = ".".join(source_dir_parts + [mod_str])
                             if local_candidate in module_to_file:
                                 target_file = module_to_file[local_candidate]
                                 is_internal = True
                             else:
-                                # Check if symbol imported from a file module (e.g. from app.database import Base)
-                                # where mod_str is already checked, but what if from module import symbol?
-                                # If mod_str was not found, check parent modules
                                 parts = mod_str.split(".")
                                 for i in range(len(parts) - 1, 0, -1):
                                     parent_mod = ".".join(parts[:i])
@@ -291,6 +284,238 @@ class AnalysisService:
             "total_classes": total_classes,
             "files": analyzed_files,
             "dependencies": dependencies,
+        }
+
+    def build_architecture_graph(self, repo_url: str) -> Dict[str, Any]:
+        """
+        Constructs a source-derived architecture graph representation of the repository.
+        Nodes: file, class, function
+        Edges: contains, imports, calls
+        Uses strictly unambiguous, source-derived AST relationships.
+        """
+        analysis_data = self.analyze_repository(repo_url)
+
+        nodes: List[Dict[str, Any]] = []
+        edges: List[Dict[str, Any]] = []
+        seen_node_ids: Set[str] = set()
+        seen_edge_ids: Set[str] = set()
+
+        file_functions: Dict[str, Dict[str, str]] = {}
+        function_nodes_by_scope: Dict[str, Dict[str, str]] = {}
+
+        # 1. Build Nodes (file, class, function) and 'contains' Edges
+        for f_res in analysis_data.get("files", []):
+            file_path = f_res.get("file_path") or ""
+            if not file_path:
+                continue
+
+            file_node_id = f"file:{file_path}"
+            if file_node_id not in seen_node_ids:
+                nodes.append({
+                    "id": file_node_id,
+                    "type": "file",
+                    "name": file_path,
+                    "file_path": file_path,
+                    "start_line": None,
+                    "end_line": None,
+                })
+                seen_node_ids.add(file_node_id)
+
+            file_classes = f_res.get("classes", [])
+            file_funcs = f_res.get("functions", [])
+
+            # Class nodes
+            for cls in file_classes:
+                class_node_id = f"class:{file_path}:{cls['name']}"
+                if class_node_id not in seen_node_ids:
+                    nodes.append({
+                        "id": class_node_id,
+                        "type": "class",
+                        "name": cls["name"],
+                        "file_path": file_path,
+                        "start_line": cls.get("start_line"),
+                        "end_line": cls.get("end_line"),
+                    })
+                    seen_node_ids.add(class_node_id)
+
+                # contains: file -> class
+                c_edge_id = f"contains:{file_node_id}->{class_node_id}"
+                if c_edge_id not in seen_edge_ids:
+                    edges.append({
+                        "id": c_edge_id,
+                        "source": file_node_id,
+                        "target": class_node_id,
+                        "type": "contains",
+                    })
+                    seen_edge_ids.add(c_edge_id)
+
+            # Function nodes (distinguishing methods and top-level functions)
+            for func in file_funcs:
+                func_name = func["name"]
+                f_start = func.get("start_line", 0)
+                f_end = func.get("end_line", 0)
+
+                # Check if enclosed in any class in this file
+                enclosing_class = None
+                for cls in file_classes:
+                    if cls.get("start_line", 0) <= f_start and f_end <= cls.get("end_line", 0):
+                        enclosing_class = cls["name"]
+                        break
+
+                if enclosing_class:
+                    func_node_id = f"func:{file_path}:{enclosing_class}.{func_name}"
+                    display_name = f"{enclosing_class}.{func_name}"
+                    class_node_id = f"class:{file_path}:{enclosing_class}"
+                    # contains: class -> method
+                    c_edge_id = f"contains:{class_node_id}->{func_node_id}"
+                    if c_edge_id not in seen_edge_ids:
+                        edges.append({
+                            "id": c_edge_id,
+                            "source": class_node_id,
+                            "target": func_node_id,
+                            "type": "contains",
+                        })
+                        seen_edge_ids.add(c_edge_id)
+                else:
+                    func_node_id = f"func:{file_path}:{func_name}"
+                    display_name = func_name
+                    # contains: file -> top-level function
+                    c_edge_id = f"contains:{file_node_id}->{func_node_id}"
+                    if c_edge_id not in seen_edge_ids:
+                        edges.append({
+                            "id": c_edge_id,
+                            "source": file_node_id,
+                            "target": func_node_id,
+                            "type": "contains",
+                        })
+                        seen_edge_ids.add(c_edge_id)
+
+                if func_node_id not in seen_node_ids:
+                    nodes.append({
+                        "id": func_node_id,
+                        "type": "function",
+                        "name": display_name,
+                        "file_path": file_path,
+                        "start_line": f_start,
+                        "end_line": f_end,
+                    })
+                    seen_node_ids.add(func_node_id)
+
+                file_functions.setdefault(file_path, {})[func_name] = func_node_id
+                function_nodes_by_scope.setdefault(file_path, {})[func_name] = func_node_id
+                if enclosing_class:
+                    function_nodes_by_scope[file_path][f"{enclosing_class}.{func_name}"] = func_node_id
+
+        # 2. Build 'imports' Edges (file -> file)
+        for dep in analysis_data.get("dependencies", []):
+            if dep.get("is_internal") and dep.get("target_file"):
+                src_node = f"file:{dep['source_file']}"
+                tgt_node = f"file:{dep['target_file']}"
+                if src_node in seen_node_ids and tgt_node in seen_node_ids and src_node != tgt_node:
+                    imp_edge_id = f"imports:{src_node}->{tgt_node}"
+                    if imp_edge_id not in seen_edge_ids:
+                        edges.append({
+                            "id": imp_edge_id,
+                            "source": src_node,
+                            "target": tgt_node,
+                            "type": "imports",
+                        })
+                        seen_edge_ids.add(imp_edge_id)
+
+        # 3. Build 'calls' Edges (function -> function)
+        # Strict Rule: Only create an edge when the target can be resolved unambiguously
+        # from existing AST and repository-level import information.
+        for f_res in analysis_data.get("files", []):
+            file_path = f_res.get("file_path") or ""
+            calls = f_res.get("function_calls", [])
+            imports = f_res.get("imports", [])
+
+            # Index internal imports for this file
+            imported_symbols_to_file: Dict[str, str] = {}
+            imported_modules_to_file: Dict[str, str] = {}
+
+            for dep in analysis_data.get("dependencies", []):
+                if dep.get("source_file") == file_path and dep.get("is_internal") and dep.get("target_file"):
+                    tgt = dep["target_file"]
+                    mod_str = dep.get("imported_module", "")
+                    if mod_str:
+                        imported_modules_to_file[mod_str] = tgt
+                        last_part = mod_str.rstrip(".").split(".")[-1]
+                        if last_part:
+                            imported_modules_to_file[last_part] = tgt
+                    for name in dep.get("imported_names", []):
+                        imported_symbols_to_file[name] = tgt
+
+            for imp in imports:
+                alias = imp.get("alias")
+                name = imp.get("name")
+                if alias and name in imported_symbols_to_file:
+                    imported_symbols_to_file[alias] = imported_symbols_to_file[name]
+                if alias and name in imported_modules_to_file:
+                    imported_modules_to_file[alias] = imported_modules_to_file[name]
+
+            for call in calls:
+                caller = call.get("caller")
+                called_func = call.get("called_function", "")
+
+                if not caller or caller == "<module>":
+                    continue
+
+                source_id = function_nodes_by_scope.get(file_path, {}).get(caller)
+                if not source_id:
+                    continue
+
+                target_id = None
+
+                # Case A: Same-file call to a uniquely defined function
+                if "." not in called_func:
+                    if called_func in file_functions.get(file_path, {}):
+                        target_id = file_functions[file_path][called_func]
+                elif called_func.startswith("self."):
+                    method_name = called_func[5:]
+                    if "." in caller:
+                        cls_name = caller.split(".")[0]
+                        scoped_name = f"{cls_name}.{method_name}"
+                        if scoped_name in function_nodes_by_scope.get(file_path, {}):
+                            target_id = function_nodes_by_scope[file_path][scoped_name]
+
+                # Case B: Cross-file call via unambiguous internal import
+                if not target_id:
+                    # B1. Directly imported function name: from module import func; func()
+                    if "." not in called_func and called_func in imported_symbols_to_file:
+                        target_file = imported_symbols_to_file[called_func]
+                        if called_func in file_functions.get(target_file, {}):
+                            target_id = file_functions[target_file][called_func]
+
+                    # B2. Module-prefixed call: import module; module.func()
+                    elif "." in called_func and not called_func.startswith("self."):
+                        parts = called_func.split(".")
+                        if len(parts) == 2:
+                            mod_prefix, fn_name = parts[0], parts[1]
+                            if mod_prefix in imported_modules_to_file:
+                                target_file = imported_modules_to_file[mod_prefix]
+                                if fn_name in file_functions.get(target_file, {}):
+                                    target_id = file_functions[target_file][fn_name]
+
+                # Create edge only if target_id resolved to a known function node
+                if target_id and target_id in seen_node_ids and source_id != target_id:
+                    call_edge_id = f"calls:{source_id}->{target_id}"
+                    if call_edge_id not in seen_edge_ids:
+                        edges.append({
+                            "id": call_edge_id,
+                            "source": source_id,
+                            "target": target_id,
+                            "type": "calls",
+                        })
+                        seen_edge_ids.add(call_edge_id)
+
+        return {
+            "repository_url": analysis_data.get("repository_url", repo_url),
+            "repository_name": analysis_data.get("repository_name", ""),
+            "nodes": nodes,
+            "edges": edges,
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
         }
 
     def start_analysis(self, repository_id: int):

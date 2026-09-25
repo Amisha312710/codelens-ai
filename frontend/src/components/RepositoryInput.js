@@ -21,7 +21,7 @@ export default function RepositoryInput({ value, onChange, onSubmit, disabled })
         onChange={onChange}
         disabled={disabled}
       />
-      <button type="button" onClick={onSubmit} className="repo-input-btn" disabled={disabled}>
+      <button type="submit" onClick={onSubmit} className="repo-input-btn" disabled={disabled}>
         Analyze <span>&rarr;</span>
       </button>
     </div>

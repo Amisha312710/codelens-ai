@@ -88,3 +88,28 @@ class RepositoryAnalysisResponse(BaseModel):
     total_classes: int
     files: List[FileASTAnalysisResult]
     dependencies: List[FileDependencyInfo]
+
+
+class GraphNode(BaseModel):
+    id: str
+    type: str  # "file" | "class" | "function"
+    name: str
+    file_path: str
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str  # "contains" | "imports" | "calls"
+
+
+class ArchitectureGraphResponse(BaseModel):
+    repository_url: str
+    repository_name: str
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+    total_nodes: int
+    total_edges: int

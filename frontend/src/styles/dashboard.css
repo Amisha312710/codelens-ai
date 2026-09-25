@@ -180,6 +180,37 @@
   color: var(--text-muted);
 }
 
+/* React Flow styling integrations */
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__handle {
+  border-radius: 50% !important;
+}
+
+.react-flow__controls {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  fill: var(--text-secondary) !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  fill: var(--text-primary) !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
 /* Source Preview Panel at Bottom */
 .dashboard-source-dock {
   height: 200px;

@@ -6,14 +6,44 @@
  * Future integration will connect to actual backend endpoints.
  */
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+
+/**
+ * Fetches the real architecture graph from the backend API
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @returns {Promise<object>} Architecture graph data with nodes and edges
+ */
+export async function getArchitectureGraph(repoUrl) {
+  const response = await fetch(`${API_BASE_URL}/analysis/graph`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: repoUrl }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Analysis request failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
 
 /**
  * Placeholder for repository analysis trigger
  * @param {string} repoUrl - Repository GitHub URL or identifier
  */
 export async function analyzeRepository(repoUrl) {
-  throw new Error(`analyzeRepository not implemented yet. Backend integration will occur in Milestone 2+. Target URL: ${repoUrl}`);
+  return getArchitectureGraph(repoUrl);
 }
 
 /**
@@ -62,6 +92,7 @@ export async function generateWalkthrough(repoId, options = {}) {
 
 export default {
   API_BASE_URL,
+  getArchitectureGraph,
   analyzeRepository,
   getRepository,
   askQuestion,
