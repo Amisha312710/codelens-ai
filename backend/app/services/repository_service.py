@@ -4,6 +4,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -115,6 +116,10 @@ class RepositoryService:
         ".dockerfile": "Dockerfile",
     }
 
+    # In-memory cache for recent ingestion results by normalized repo URL (5 min TTL)
+    _ingest_cache: Dict[str, Tuple[float, dict]] = {}
+    CACHE_TTL_SECONDS = 300
+
     def __init__(self, db_session=None):
         self.db = db_session
 
@@ -163,6 +168,12 @@ class RepositoryService:
         and safely deletes the temporary clone.
         """
         normalized_url, repo_name = self.validate_github_url(repo_url)
+
+        now = time.time()
+        if normalized_url in self._ingest_cache:
+            cached_time, cached_data = self._ingest_cache[normalized_url]
+            if now - cached_time < self.CACHE_TTL_SECONDS:
+                return cached_data
 
         temp_dir = tempfile.mkdtemp(prefix="codelens_ingest_")
         try:
@@ -260,16 +271,59 @@ class RepositoryService:
             # Sort source files predictably by path
             source_files.sort(key=lambda x: x["relative_path"])
 
-            return {
+            result_data = {
                 "repository_url": repo_url,
                 "repository_name": repo_name,
                 "total_files": len(source_files),
                 "files": source_files,
             }
+            self._ingest_cache[normalized_url] = (time.time(), result_data)
+            return result_data
 
         finally:
             # Always cleanly delete the temporary clone directory
             shutil.rmtree(temp_dir, onerror=self._handle_remove_readonly)
+
+    def get_file_source(self, repo_url: str, file_path: str) -> dict:
+        """
+        Safely retrieves source code for a specific file path from a repository.
+        Validates GitHub URL, protects against path traversal, and reuses
+        existing repository ingestion security filters.
+        """
+        if not file_path or not file_path.strip():
+            raise HTTPException(status_code=400, detail="file_path cannot be empty.")
+
+        clean_path = file_path.strip().replace("\\", "/")
+        if clean_path.startswith("/") or ":" in clean_path:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file path: absolute paths are not permitted.",
+            )
+
+        parts = [p for p in clean_path.split("/") if p]
+        if ".." in parts:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file path: path traversal ('..') is not permitted.",
+            )
+
+        normalized_clean_path = "/".join(parts)
+
+        # Ingest repository safely (uses cache if available)
+        repo_data = self.ingest_repository(repo_url)
+
+        for f in repo_data.get("files", []):
+            if f.get("relative_path") == normalized_clean_path:
+                return {
+                    "file_path": f["relative_path"],
+                    "language": f.get("language") or "Python",
+                    "source_code": f.get("source_content", ""),
+                }
+
+        raise HTTPException(
+            status_code=404,
+            detail=f"File '{file_path}' was not found in repository or was excluded by security filters.",
+        )
 
     def get_repository(self, repository_id: int):
         raise NotImplementedError("RepositoryService.get_repository is scheduled for future implementation.")

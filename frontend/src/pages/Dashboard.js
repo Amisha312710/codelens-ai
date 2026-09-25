@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
 import ArchitectureGraph from '../components/ArchitectureGraph.js';
-import { getArchitectureGraph } from '../services/api.js';
+import CodeViewer from '../components/CodeViewer.js';
+import { getArchitectureGraph, getSourceCode } from '../services/api.js';
 import '../styles/dashboard.css';
 
 /**
@@ -18,6 +19,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(!location.state?.graphData);
   const [error, setError] = useState(null);
   const [fileSearch, setFileSearch] = useState('');
+
+  // Source code state and in-memory cache to prevent redundant fetches
+  const sourceCacheRef = useRef(new Map());
+  const [currentSource, setCurrentSource] = useState({ code: '', language: 'python' });
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState(null);
 
   const repoUrl =
     location.state?.repoUrl ||
@@ -47,6 +54,57 @@ export default function Dashboard() {
       setSelectedNode(graphData.nodes[0]);
     }
   }, [graphData, selectedNode, loadGraph]);
+
+  // Retrieve source code whenever selectedNode changes
+  useEffect(() => {
+    if (!selectedNode || !selectedNode.file_path) {
+      setCurrentSource({ code: '', language: 'python' });
+      setSourceError(null);
+      setSourceLoading(false);
+      return;
+    }
+
+    const filePath = selectedNode.file_path;
+
+    // Use cached source code if already fetched
+    if (sourceCacheRef.current.has(filePath)) {
+      const cached = sourceCacheRef.current.get(filePath);
+      setCurrentSource(cached);
+      setSourceLoading(false);
+      setSourceError(null);
+      return;
+    }
+
+    let isMounted = true;
+    setSourceLoading(true);
+    setSourceError(null);
+
+    getSourceCode(repoUrl, filePath, selectedNode.start_line, selectedNode.end_line)
+      .then((res) => {
+        if (isMounted) {
+          const sourceData = {
+            code: res.source_code,
+            language: res.language || 'python',
+          };
+          sourceCacheRef.current.set(filePath, sourceData);
+          setCurrentSource(sourceData);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setSourceError(err.message || 'Failed to load source code.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setSourceLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedNode, repoUrl]);
 
   // Lookup map for fast node retrieval by id
   const nodeMap = useMemo(() => {
@@ -265,89 +323,17 @@ export default function Dashboard() {
           </div>
 
           {/* Bottom Source Dock */}
-          <div className="dashboard-source-dock">
-            <div className="source-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span
-                  className="badge"
-                  style={{
-                    backgroundColor: 'var(--accent-primary)',
-                    color: '#ffffff',
-                    fontSize: '10px',
-                  }}
-                >
-                  SOURCE
-                </span>
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  {selectedNode?.file_path || 'No node selected'}
-                </span>
-              </div>
-              {selectedNode?.start_line && (
-                <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>
-                  Line {selectedNode.start_line}
-                  {selectedNode.end_line && selectedNode.end_line !== selectedNode.start_line
-                    ? ` - ${selectedNode.end_line}`
-                    : ''}
-                </span>
-              )}
-            </div>
-
-            <div className="source-code">
-              {selectedNode ? (
-                <>
-                  <div>
-                    <span className="code-line-num">1</span>
-                    <span className="code-comment">
-                      # Node: {selectedNode.name} ({selectedNode.type})
-                    </span>
-                  </div>
-                  <div>
-                    <span className="code-line-num">2</span>
-                    <span className="code-comment">
-                      # File: {selectedNode.file_path}
-                    </span>
-                  </div>
-                  {selectedNode.start_line && (
-                    <div>
-                      <span className="code-line-num">3</span>
-                      <span className="code-comment">
-                        # Location: Lines {selectedNode.start_line} to {selectedNode.end_line}
-                      </span>
-                    </div>
-                  )}
-                  <div>
-                    <span className="code-line-num">4</span>
-                  </div>
-                  {selectedNode.type === 'function' && (
-                    <div>
-                      <span className="code-line-num">{selectedNode.start_line || 5}</span>
-                      <span className="code-keyword">def</span>{' '}
-                      <span className="code-fn">{selectedNode.name}</span>(...):
-                    </div>
-                  )}
-                  {selectedNode.type === 'class' && (
-                    <div>
-                      <span className="code-line-num">{selectedNode.start_line || 5}</span>
-                      <span className="code-keyword">class</span>{' '}
-                      <span className="code-fn">{selectedNode.name}</span>:
-                    </div>
-                  )}
-                  {selectedNode.type === 'file' && (
-                    <div>
-                      <span className="code-line-num">5</span>
-                      <span className="code-comment">
-                        # Top-level module: {selectedNode.file_path}
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ color: 'var(--text-dim)' }}>
-                  Select a node from the architecture graph to view source details.
-                </div>
-              )}
-            </div>
-          </div>
+          <CodeViewer
+            filePath={selectedNode?.file_path || ''}
+            code={currentSource.code}
+            language={currentSource.language}
+            startLine={selectedNode?.start_line}
+            endLine={selectedNode?.end_line}
+            nodeType={selectedNode?.type || 'file'}
+            nodeName={selectedNode?.name || ''}
+            loading={sourceLoading}
+            error={sourceError}
+          />
         </main>
 
         {/* Right Column: Inspector */}

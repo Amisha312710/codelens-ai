@@ -234,19 +234,22 @@ class AnalysisService:
 
                         if remainder:
                             candidate_dotted = ".".join(base_parts + remainder.split("."))
+                            if candidate_dotted in module_to_file:
+                                target_file = module_to_file[candidate_dotted]
+                                is_internal = True
                         else:
-                            candidate_dotted = ".".join(base_parts)
-
-                        if candidate_dotted in module_to_file:
-                            target_file = module_to_file[candidate_dotted]
-                            is_internal = True
-                        else:
+                            # e.g., 'from . import foo' where foo is in names
                             for name in names:
                                 sibling_candidate = ".".join(base_parts + [name])
                                 if sibling_candidate in module_to_file:
                                     target_file = module_to_file[sibling_candidate]
                                     is_internal = True
                                     break
+                            if not target_file:
+                                candidate_dotted = ".".join(base_parts)
+                                if candidate_dotted in module_to_file:
+                                    target_file = module_to_file[candidate_dotted]
+                                    is_internal = True
                     else:
                         # Absolute import candidate
                         if mod_str in module_to_file:
@@ -445,6 +448,8 @@ class AnalysisService:
                             imported_modules_to_file[last_part] = tgt
                     for name in dep.get("imported_names", []):
                         imported_symbols_to_file[name] = tgt
+                        if tgt.endswith(f"/{name}.py") or tgt == f"{name}.py":
+                            imported_modules_to_file[name] = tgt
 
             for imp in imports:
                 alias = imp.get("alias")
@@ -492,10 +497,9 @@ class AnalysisService:
                         parts = called_func.split(".")
                         if len(parts) == 2:
                             mod_prefix, fn_name = parts[0], parts[1]
-                            if mod_prefix in imported_modules_to_file:
-                                target_file = imported_modules_to_file[mod_prefix]
-                                if fn_name in file_functions.get(target_file, {}):
-                                    target_id = file_functions[target_file][fn_name]
+                            target_file = imported_modules_to_file.get(mod_prefix) or imported_symbols_to_file.get(mod_prefix)
+                            if target_file and fn_name in file_functions.get(target_file, {}):
+                                target_id = file_functions[target_file][fn_name]
 
                 # Create edge only if target_id resolved to a known function node
                 if target_id and target_id in seen_node_ids and source_id != target_id:
@@ -518,8 +522,26 @@ class AnalysisService:
             "total_edges": len(edges),
         }
 
+    def get_file_source(
+        self,
+        repo_url: str,
+        file_path: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Safely retrieves source code for a specific repository file,
+        attaching requested line boundaries for code viewer navigation.
+        """
+        repo_service = RepositoryService(db_session=self.db)
+        result = repo_service.get_file_source(repo_url=repo_url, file_path=file_path)
+        result["start_line"] = start_line
+        result["end_line"] = end_line
+        return result
+
     def start_analysis(self, repository_id: int):
         raise NotImplementedError("AnalysisService.start_analysis is scheduled for future implementation.")
 
     def get_analysis_status(self, analysis_id: int):
         raise NotImplementedError("AnalysisService.get_analysis_status is scheduled for future implementation.")
+

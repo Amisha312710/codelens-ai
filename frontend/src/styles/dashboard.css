@@ -213,11 +213,23 @@
 
 /* Source Preview Panel at Bottom */
 .dashboard-source-dock {
-  height: 200px;
+  height: 260px;
+  min-height: 180px;
   border-top: 1px solid var(--border-subtle);
   background-color: #07090e;
   display: flex;
   flex-direction: column;
+}
+
+/* Monaco Line Highlighting */
+.monaco-line-highlight {
+  background-color: rgba(99, 102, 241, 0.22) !important;
+}
+
+.monaco-line-gutter-marker {
+  background-color: var(--accent-primary) !important;
+  width: 4px !important;
+  margin-left: 2px;
 }
 
 .source-header {

@@ -113,3 +113,19 @@ class ArchitectureGraphResponse(BaseModel):
     edges: List[GraphEdge]
     total_nodes: int
     total_edges: int
+
+
+class FileSourceCodeRequest(BaseModel):
+    url: str
+    file_path: str
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+
+
+class FileSourceCodeResponse(BaseModel):
+    file_path: str
+    language: Optional[str] = "Python"
+    source_code: str
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+

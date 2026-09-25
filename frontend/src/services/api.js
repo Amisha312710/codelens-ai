@@ -64,12 +64,50 @@ export async function askQuestion(repoId, question) {
 }
 
 /**
- * Placeholder for fetching repository file source content
- * @param {string} repoId - Repository identifier
+ * Safely retrieves source code for a specific repository file
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @param {string} filePath - Relative file path within repository
+ * @param {number} [startLine] - Optional start line for highlighting
+ * @param {number} [endLine] - Optional end line for highlighting
+ * @returns {Promise<{file_path: string, language: string, source_code: string, start_line?: number, end_line?: number}>}
+ */
+export async function getSourceCode(repoUrl, filePath, startLine, endLine) {
+  const response = await fetch(`${API_BASE_URL}/analysis/source`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: repoUrl,
+      file_path: filePath,
+      start_line: startLine,
+      end_line: endLine,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Source retrieval failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Repository file source content retriever
+ * @param {string} repoId - Repository identifier or URL
  * @param {string} filePath - Path to file within repository
  */
 export async function getFile(repoId, filePath) {
-  throw new Error(`getFile not implemented yet. Backend integration will occur in Milestone 3+. File: ${filePath}`);
+  return getSourceCode(repoId, filePath);
 }
 
 /**
@@ -93,6 +131,7 @@ export async function generateWalkthrough(repoId, options = {}) {
 export default {
   API_BASE_URL,
   getArchitectureGraph,
+  getSourceCode,
   analyzeRepository,
   getRepository,
   askQuestion,

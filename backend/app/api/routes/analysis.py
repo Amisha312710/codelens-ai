@@ -6,6 +6,8 @@ from app.schemas.analysis import (
     AnalyzeCodeRequest,
     ArchitectureGraphResponse,
     FileASTAnalysisResult,
+    FileSourceCodeRequest,
+    FileSourceCodeResponse,
     RepositoryAnalysisRequest,
     RepositoryAnalysisResponse,
 )
@@ -54,3 +56,22 @@ def get_architecture_graph(
     """
     service = AnalysisService(db_session=db)
     return service.build_architecture_graph(repo_url=payload.url)
+
+
+@router.post("/source", response_model=FileSourceCodeResponse)
+def get_file_source(
+    payload: FileSourceCodeRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Safely retrieves the source code for a specific repository file.
+    Reuses existing repository ingestion safety filters and validates path boundaries.
+    """
+    service = AnalysisService(db_session=db)
+    return service.get_file_source(
+        repo_url=payload.url,
+        file_path=payload.file_path,
+        start_line=payload.start_line,
+        end_line=payload.end_line,
+    )
+
