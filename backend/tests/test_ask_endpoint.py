@@ -13,12 +13,20 @@ if str(_REPO_ROOT) not in sys.path:
 
 from fastapi import HTTPException
 from app.services.search_service import SearchService
+from app.config import settings
 from rag.generation import (
     LLMProvider,
+    GroqProvider,
+    OpenAIProvider,
     validate_context,
     format_evidence_prompt,
     extract_citations,
     GROUNDING_SYSTEM_PROMPT,
+    VALID_EXPLANATION_MODES,
+    build_system_prompt,
+    format_conversation_history,
+    build_contextual_query,
+    generate_followup_suggestions,
 )
 
 
@@ -135,26 +143,35 @@ class TestAskEndpoint(unittest.TestCase):
             self.assertEqual(mock_provider.call_count, 0)
             self.assertEqual(res["citations"], [])
             self.assertEqual(res["evidence_used"], [])
-            self.assertIn("insufficient", res["answer"].lower())
+            self.assertIn("couldn't find enough evidence", res["answer"].lower())
         finally:
             self.search_service.search_repository = original_search
 
     def test_missing_api_key(self):
-        """5. Missing OPENAI_API_KEY raises server configuration error (HTTPException 500)."""
-        old_key = os.environ.pop("OPENAI_API_KEY", None)
+        """5. Missing API key raises server configuration error (HTTPException 500)."""
+        old_groq = os.environ.pop("GROQ_API_KEY", None)
+        old_openai = os.environ.pop("OPENAI_API_KEY", None)
+        old_settings_groq = settings.GROQ_API_KEY
+        old_settings_openai = settings.OPENAI_API_KEY
+        settings.GROQ_API_KEY = None
+        settings.OPENAI_API_KEY = None
         try:
             with self.assertRaises(HTTPException) as ctx:
                 self.search_service.ask_repository(
                     repo_url=self.repo_url,
                     question="How does hmm work?",
                     top_k=5,
-                    provider=None,  # Forces OpenAIProvider initialization
+                    provider=None,  # Forces default GroqProvider initialization
                 )
             self.assertEqual(ctx.exception.status_code, 500)
-            self.assertIn("OPENAI_API_KEY", ctx.exception.detail)
+            self.assertIn("GROQ_API_KEY", ctx.exception.detail)
         finally:
-            if old_key is not None:
-                os.environ["OPENAI_API_KEY"] = old_key
+            settings.GROQ_API_KEY = old_settings_groq
+            settings.OPENAI_API_KEY = old_settings_openai
+            if old_groq is not None:
+                os.environ["GROQ_API_KEY"] = old_groq
+            if old_openai is not None:
+                os.environ["OPENAI_API_KEY"] = old_openai
 
     def test_llm_provider_failure(self):
         """6. Provider failure raises controlled HTTPException 502 with no raw stack trace leaked."""
@@ -193,6 +210,198 @@ class TestAskEndpoint(unittest.TestCase):
         parsed = extract_citations(sample_answer)
         self.assertEqual(parsed, ["sample/core.py:10-20", "sample/helpers.py:1-5"])
 
+    def test_groq_provider_initialization_and_validation(self):
+        """8. GroqProvider configures defaults and validates GROQ_API_KEY."""
+        old_model = os.environ.pop("GROQ_MODEL", None)
+        try:
+            provider = GroqProvider(api_key="gsk_test123")
+            self.assertEqual(provider.model, "llama-3.3-70b-versatile")
+            self.assertEqual(provider.api_key, "gsk_test123")
+        finally:
+            if old_model is not None:
+                os.environ["GROQ_MODEL"] = old_model
+
+        custom_provider = GroqProvider(api_key="gsk_test123", model="llama-3.1-8b-instant")
+        self.assertEqual(custom_provider.model, "llama-3.1-8b-instant")
+
+        old_key = os.environ.pop("GROQ_API_KEY", None)
+        try:
+            unconfigured = GroqProvider()
+            with self.assertRaises(ValueError) as ctx:
+                unconfigured.generate("test prompt")
+            self.assertIn("GROQ_API_KEY", str(ctx.exception))
+        finally:
+            if old_key is not None:
+                os.environ["GROQ_API_KEY"] = old_key
+
+    def test_openai_provider_intact(self):
+        """9. OpenAIProvider remains intact as an optional provider."""
+        old_model = os.environ.pop("OPENAI_MODEL", None)
+        try:
+            provider = OpenAIProvider(api_key="sk-test123")
+            self.assertEqual(provider.model, "gpt-4o-mini")
+            self.assertEqual(provider.api_key, "sk-test123")
+        finally:
+            if old_model is not None:
+                os.environ["OPENAI_MODEL"] = old_model
+
+        custom_provider = OpenAIProvider(api_key="sk-test123", model="gpt-4o")
+        self.assertEqual(custom_provider.model, "gpt-4o")
+
+        old_key = os.environ.pop("OPENAI_API_KEY", None)
+        try:
+            unconfigured = OpenAIProvider()
+            with self.assertRaises(ValueError) as ctx:
+                unconfigured.generate("test prompt")
+            self.assertIn("OPENAI_API_KEY", str(ctx.exception))
+        finally:
+            if old_key is not None:
+                os.environ["OPENAI_API_KEY"] = old_key
+
+    def test_ask_beginner_mode(self):
+        """10. Beginner mode sets beginner instructions and returns explanation_mode."""
+        mock_provider = MockLLMProvider()
+        res = self.search_service.ask_repository(
+            repo_url=self.repo_url,
+            question="What does the core module do?",
+            top_k=5,
+            explanation_mode="beginner",
+            provider=mock_provider,
+        )
+        self.assertEqual(res["explanation_mode"], "beginner")
+        self.assertIn("EXPLANATION MODE: BEGINNER", mock_provider.last_system_prompt)
+        self.assertIn("intuitive real-world analogies", mock_provider.last_system_prompt)
+        self.assertIsInstance(res.get("suggested_followups"), list)
+
+    def test_ask_developer_mode(self):
+        """11. Developer mode sets technical instructions and returns explanation_mode."""
+        mock_provider = MockLLMProvider()
+        res = self.search_service.ask_repository(
+            repo_url=self.repo_url,
+            question="What does the core module do?",
+            top_k=5,
+            explanation_mode="developer",
+            provider=mock_provider,
+        )
+        self.assertEqual(res["explanation_mode"], "developer")
+        self.assertIn("EXPLANATION MODE: DEVELOPER", mock_provider.last_system_prompt)
+        self.assertIn("precise technical terminology", mock_provider.last_system_prompt)
+
+    def test_ask_interview_mode(self):
+        """12. Interview mode sets candidate interview structure and returns explanation_mode."""
+        mock_provider = MockLLMProvider()
+        res = self.search_service.ask_repository(
+            repo_url=self.repo_url,
+            question="What does the core module do?",
+            top_k=5,
+            explanation_mode="interview",
+            provider=mock_provider,
+        )
+        self.assertEqual(res["explanation_mode"], "interview")
+        self.assertIn("EXPLANATION MODE: INTERVIEW", mock_provider.last_system_prompt)
+        self.assertIn("What problem this solves", mock_provider.last_system_prompt)
+
+    def test_ask_invalid_mode_raises_400(self):
+        """13. Invalid explanation mode raises HTTPException 400."""
+        mock_provider = MockLLMProvider()
+        with self.assertRaises(HTTPException) as ctx:
+            self.search_service.ask_repository(
+                repo_url=self.repo_url,
+                question="What does this do?",
+                top_k=5,
+                explanation_mode="wizard",
+                provider=mock_provider,
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Invalid explanation mode", ctx.exception.detail)
+
+    def test_ask_conversation_context_and_strict_separation(self):
+        """14. Conversation history is included for context but separated from repository evidence."""
+        mock_provider = MockLLMProvider()
+        conversation = [
+            {"role": "user", "content": "How does get_answer work?"},
+            {"role": "assistant", "content": "It returns True from helpers [Source: sample/helpers.py:1-3]."},
+        ]
+        res = self.search_service.ask_repository(
+            repo_url=self.repo_url,
+            question="Why does it return that value?",
+            top_k=5,
+            conversation=conversation,
+            provider=mock_provider,
+        )
+        # Check system prompt includes strict evidence separation rule 6
+        self.assertIn("Strict Evidence Separation", mock_provider.last_system_prompt)
+        self.assertIn("Conversation history is NOT repository evidence", mock_provider.last_system_prompt)
+
+        # Check prompt includes recent conversation context boundary
+        self.assertIn("--- RECENT CONVERSATION CONTEXT (For reference only; NOT repository evidence) ---", mock_provider.last_prompt)
+        self.assertIn("User: How does get_answer work?", mock_provider.last_prompt)
+        self.assertIn("Question: Why does it return that value?", mock_provider.last_prompt)
+
+    def test_ask_backend_history_limit_defensive_capping(self):
+        """15. Backend independently caps conversation history to the latest 6 messages."""
+        mock_provider = MockLLMProvider()
+        long_conversation = [
+            {"role": "user", "content": f"TurnQuestion_{i:02d}"} if i % 2 == 0 else {"role": "assistant", "content": f"TurnAnswer_{i:02d}"}
+            for i in range(12)
+        ]
+        # 12 messages: Q00..A11
+        # Bounded latest 6 should be: Q06, A07, Q08, A09, Q10, A11
+        res = self.search_service.ask_repository(
+            repo_url=self.repo_url,
+            question="Latest question?",
+            top_k=5,
+            conversation=long_conversation,
+            provider=mock_provider,
+        )
+        # Earliest messages should NOT appear in provider's prompt
+        self.assertNotIn("TurnQuestion_00", mock_provider.last_prompt)
+        self.assertNotIn("TurnAnswer_01", mock_provider.last_prompt)
+        self.assertNotIn("TurnQuestion_04", mock_provider.last_prompt)
+        # Latest 6 messages should appear
+        self.assertIn("TurnQuestion_06", mock_provider.last_prompt)
+        self.assertIn("TurnAnswer_11", mock_provider.last_prompt)
+
+    def test_contextual_query_builder(self):
+        """16. build_contextual_query deterministically combines recent turn with follow-up query."""
+        # Simple question without conversation
+        q1 = build_contextual_query("How does core.py work?")
+        self.assertEqual(q1, "How does core.py work?")
+
+        # Follow-up question with prior user turn
+        conv = [
+            {"role": "user", "content": "How does get_answer work?"},
+            {"role": "assistant", "content": "It returns True."},
+        ]
+        q2 = build_contextual_query("Why does it do that?", conv)
+        self.assertEqual(q2, "How does get_answer work? Why does it do that?")
+
+        # When question is already identical to last user turn, doesn't duplicate
+        q3 = build_contextual_query("How does get_answer work?", conv)
+        self.assertEqual(q3, "How does get_answer work?")
+
+    def test_deterministic_followup_suggestions(self):
+        """17. generate_followup_suggestions generates 2-3 suggestions without LLM."""
+        evidence = [
+            {
+                "file_path": "sample/core.py",
+                "symbol_name": "hmm",
+                "symbol_type": "FUNCTION",
+            },
+            {
+                "file_path": "sample/helpers.py",
+                "symbol_name": "get_answer",
+                "symbol_type": "FUNCTION",
+            },
+        ]
+        suggestions = generate_followup_suggestions("What does hmm do?", evidence)
+        self.assertIsInstance(suggestions, list)
+        self.assertTrue(2 <= len(suggestions) <= 3)
+        # Suggestions should reference discovered symbols or logical next steps
+        joined = " ".join(suggestions)
+        self.assertTrue("get_answer()" in joined or "hmm()" in joined or "?" in joined)
+
 
 if __name__ == "__main__":
     unittest.main()
+

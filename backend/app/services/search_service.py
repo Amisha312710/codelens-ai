@@ -16,13 +16,20 @@ from rag.evidence_ranking import CodeEvidenceRanker
 from rag.generation import (
     LLMProvider,
     OpenAIProvider,
+    GroqProvider,
     validate_context,
     format_evidence_prompt,
     extract_citations,
     GROUNDING_SYSTEM_PROMPT,
+    VALID_EXPLANATION_MODES,
+    build_system_prompt,
+    format_conversation_history,
+    build_contextual_query,
+    generate_followup_suggestions,
 )
 from app.services.repository_service import RepositoryService
 from app.services.analysis_service import AnalysisService
+from app.config import settings
 
 
 class SearchService:
@@ -134,75 +141,120 @@ class SearchService:
         repo_url: str,
         question: str,
         top_k: int = 5,
+        explanation_mode: str = "beginner",
+        conversation: Optional[List[Dict[str, str]]] = None,
         provider: Optional[LLMProvider] = None,
     ) -> Dict[str, Any]:
         """
         Answers natural-language codebase questions using grounded LLM generation over retrieved evidence.
         Reuses the existing search_repository() pipeline without duplicating retrieval logic.
+        Incorporates explanation modes (beginner, developer, interview), bounded conversation history,
+        deterministic contextual search queries, and deterministic follow-up suggestions.
         """
         if not question or not question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-        # 1. Reuse existing search_repository pipeline (ingestion, AST, FAISS, graph, ranker, top-k)
+        clean_mode = (explanation_mode or "beginner").lower().strip()
+        if clean_mode not in VALID_EXPLANATION_MODES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid explanation mode '{explanation_mode}'. Supported modes: {', '.join(sorted(VALID_EXPLANATION_MODES))}",
+            )
+
+        # Safeguard 1: Backend-side defensive conversation history bound (latest 6 messages)
+        bounded_history = (conversation or [])[-6:]
+
+        # 1. Context-Aware Retrieval: construct lightweight deterministic search query for follow-ups
+        retrieval_query = build_contextual_query(question, bounded_history)
+
+        # 2. Reuse existing search_repository pipeline (ingestion, AST, FAISS, graph, ranker, top-k)
         search_res = self.search_repository(
             repo_url=repo_url,
-            query=question,
+            query=retrieval_query,
             top_k=top_k,
         )
         raw_evidence = search_res.get("results", [])
 
-        # 2. Context validation step (deduplicates spans, ensures non-empty code and valid metadata)
+        # 3. Context validation step (deduplicates spans, ensures non-empty code and valid metadata)
         validated_evidence = validate_context(raw_evidence)
 
-        # 3. If no usable evidence exists, return early with grounded message without calling LLM
+        # 4. If no usable evidence exists, return early with grounded message without calling LLM
         if not validated_evidence:
             return {
                 "question": question,
-                "answer": "The available repository evidence is insufficient to answer this question.",
+                "answer": "I couldn't find enough evidence in this repository to answer that confidently.",
                 "citations": [],
                 "evidence_used": [],
+                "explanation_mode": clean_mode,
+                "suggested_followups": [],
             }
 
-        # 4. Resolve LLM provider
+        # 5. Resolve LLM provider (Groq is default development provider)
         if provider is None:
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
+            groq_api_key = settings.GROQ_API_KEY or os.environ.get("GROQ_API_KEY")
+            groq_model = settings.GROQ_MODEL or os.environ.get("GROQ_MODEL")
+            openai_api_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+            openai_model = settings.OPENAI_MODEL or os.environ.get("OPENAI_MODEL")
+
+            if groq_api_key:
+                provider = GroqProvider(api_key=groq_api_key, model=groq_model)
+            elif openai_api_key:
+                provider = OpenAIProvider(api_key=openai_api_key, model=openai_model)
+            else:
                 raise HTTPException(
                     status_code=500,
-                    detail="Server configuration error: OPENAI_API_KEY is not configured.",
+                    detail="Server configuration error: GROQ_API_KEY is not configured.",
                 )
-            provider = OpenAIProvider(api_key=api_key)
 
-        # 5. Format prompt and execute LLM generation
+        # 6. Safeguard 2: Format prompt with strict evidence separation
+        system_prompt = build_system_prompt(clean_mode)
         evidence_prompt = format_evidence_prompt(validated_evidence)
-        user_prompt = (
+        history_prompt = format_conversation_history(bounded_history)
+
+        user_prompt_sections = []
+        if history_prompt:
+            user_prompt_sections.append(history_prompt)
+        user_prompt_sections.append(
             f"Question: {question.strip()}\n\n"
             f"Supplied Repository Evidence:\n\n"
             f"{evidence_prompt}\n\n"
-            f"Please provide a grounded answer with inline citations."
+            f"Please provide a grounded answer with inline citations matching the requested explanation style."
         )
+        user_prompt = "\n\n".join(user_prompt_sections)
 
         try:
             answer = provider.generate(
                 prompt=user_prompt,
-                system_prompt=GROUNDING_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
             )
         except Exception as e:
+            model_info = getattr(provider, "model", "unknown")
+            print(
+                f"[SearchService LLM Generation Error] Class: {type(e).__name__} | "
+                f"Model: {model_info} | "
+                f"Message: {str(e)}",
+                flush=True,
+            )
             # Controlled API error, no stack trace exposed to client
             raise HTTPException(
                 status_code=502,
                 detail=f"LLM generation failed: {type(e).__name__}",
             )
 
-        # 6. Parse citations only (without claiming verification yet)
+        # 7. Parse citations only (without claiming verification yet)
         citations = extract_citations(answer)
 
-        # 7. Return structured response
+        # 8. Deterministic follow-up suggestions generated from evidence & query
+        followups = generate_followup_suggestions(question, validated_evidence)
+
+        # 9. Return structured response
         return {
             "question": question,
             "answer": answer,
             "citations": citations,
             "evidence_used": validated_evidence,
+            "explanation_mode": clean_mode,
+            "suggested_followups": followups,
         }
 
     def search_codebase(self, query: str, repository_id: Optional[int] = None):

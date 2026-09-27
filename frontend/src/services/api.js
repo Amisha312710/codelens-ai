@@ -64,6 +64,60 @@ export async function askQuestion(repoId, question) {
 }
 
 /**
+ * Asks a grounded architectural question about a repository codebase.
+ * Connects to POST /api/search/ask using the backend AskRequest schema.
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @param {string} question - Developer question
+ * @param {number} [topK=5] - Maximum evidence items to retrieve
+ * @param {string} [explanationMode='beginner'] - Explanation mode ('beginner', 'developer', 'interview')
+ * @param {Array<{role: string, content: string}>} [conversation=[]] - Recent conversation history
+ * @returns {Promise<{question: string, answer: string, citations: string[], evidence_used: object[], explanation_mode: string, suggested_followups: string[]}>}
+ */
+export async function askRepository(
+  repoUrl,
+  question,
+  topK = 5,
+  explanationMode = 'beginner',
+  conversation = []
+) {
+  const boundedConversation = (conversation || [])
+    .slice(-6)
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+  const response = await fetch(`${API_BASE_URL}/search/ask`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: repoUrl,
+      question,
+      top_k: topK,
+      explanation_mode: explanationMode,
+      conversation: boundedConversation,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Ask request failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
  * Safely retrieves source code for a specific repository file
  * @param {string} repoUrl - Public GitHub repository URL
  * @param {string} filePath - Relative file path within repository
@@ -135,6 +189,7 @@ export default {
   analyzeRepository,
   getRepository,
   askQuestion,
+  askRepository,
   getFile,
   traceFlow,
   generateWalkthrough,

@@ -26,10 +26,17 @@ class SearchResponse(BaseModel):
     results: List[SearchResultItem]
 
 
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="Role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message text")
+
+
 class AskRequest(BaseModel):
     url: str = Field(..., description="Public GitHub repository URL")
     question: str = Field(..., description="Natural language question about the codebase")
     top_k: int = Field(default=5, ge=1, le=50, description="Maximum number of evidence items to retrieve")
+    explanation_mode: str = Field(default="beginner", description="Explanation mode: 'beginner', 'developer', or 'interview'")
+    conversation: List[ChatMessage] = Field(default_factory=list, description="Recent conversation turns (capped defensively on backend)")
 
 
 class AskResponse(BaseModel):
@@ -37,6 +44,8 @@ class AskResponse(BaseModel):
     answer: str
     citations: List[str]
     evidence_used: List[SearchResultItem]
+    explanation_mode: str = "beginner"
+    suggested_followups: List[str] = Field(default_factory=list)
 
 
 # Retain legacy models for backwards compatibility if needed

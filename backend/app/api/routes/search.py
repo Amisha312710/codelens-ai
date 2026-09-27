@@ -37,9 +37,15 @@ def ask_codebase(
     over retrieved codebase evidence with predictable inline source citations.
     """
     service = SearchService(db_session=db)
+    conv_dicts = [
+        m.model_dump() if hasattr(m, "model_dump") else (m.dict() if hasattr(m, "dict") else dict(m))
+        for m in (payload.conversation or [])
+    ]
     return service.ask_repository(
         repo_url=payload.url,
         question=payload.question,
         top_k=payload.top_k,
+        explanation_mode=payload.explanation_mode,
+        conversation=conv_dicts,
     )
 

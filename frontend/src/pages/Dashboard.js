@@ -3,8 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
 import ArchitectureGraph from '../components/ArchitectureGraph.js';
 import CodeViewer from '../components/CodeViewer.js';
+import AIChat from '../components/AIChat.js';
 import { getArchitectureGraph, getSourceCode } from '../services/api.js';
 import '../styles/dashboard.css';
+import '../styles/ai.css';
 
 /**
  * Developer Dashboard
@@ -19,6 +21,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(!location.state?.graphData);
   const [error, setError] = useState(null);
   const [fileSearch, setFileSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('inspector');
 
   // Source code state and in-memory cache to prevent redundant fetches
   const sourceCacheRef = useRef(new Map());
@@ -46,6 +49,25 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [repoUrl]);
+
+  const handleCitationClick = useCallback(
+    (filePath, startLine, endLine) => {
+      const existingNode =
+        graphData?.nodes?.find(
+          (n) => n.file_path === filePath && n.start_line === startLine
+        ) || graphData?.nodes?.find((n) => n.file_path === filePath);
+
+      setSelectedNode({
+        id: `citation:${filePath}:${startLine}-${endLine}`,
+        name: existingNode?.name || filePath.split('/').pop() || filePath,
+        file_path: filePath,
+        start_line: Number(startLine),
+        end_line: Number(endLine),
+        type: 'citation',
+      });
+    },
+    [graphData]
+  );
 
   useEffect(() => {
     if (!graphData) {
@@ -336,90 +358,117 @@ export default function Dashboard() {
           />
         </main>
 
-        {/* Right Column: Inspector */}
+        {/* Right Column: Inspector & AI Chat */}
         <aside className="dashboard-inspector">
-          <div className="inspector-header">
-            <span
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--text-muted)',
-              }}
+          <div className="inspector-tab-group">
+            <button
+              type="button"
+              className={`inspector-tab-btn ${activeTab === 'inspector' ? 'active' : ''}`}
+              onClick={() => setActiveTab('inspector')}
             >
               Inspector
-            </span>
-            <span className="badge" style={{ fontSize: '10px' }}>
-              {selectedNode ? 'Focused' : 'Idle'}
-            </span>
-          </div>
-
-          <h3 className="inspector-title">
-            {selectedNode?.name || 'No Selection'}
-          </h3>
-          <div className="inspector-subtitle">
-            {selectedNode?.file_path || 'Click any graph node to inspect'}
-          </div>
-
-          <div className="inspector-stats-row">
-            <div className="stat-box">
-              <div className="stat-label">Type</div>
-              <div className="stat-value" style={{ fontSize: '14px', textTransform: 'uppercase' }}>
-                {selectedNode?.type || '-'}
-              </div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">Lines</div>
-              <div className="stat-value" style={{ fontSize: '14px' }}>
-                {selectedNode?.start_line
-                  ? `${selectedNode.start_line}${selectedNode.end_line && selectedNode.end_line !== selectedNode.start_line ? `-${selectedNode.end_line}` : ''}`
-                  : '-'}
-              </div>
-            </div>
-            <div className="stat-box">
-              <div className="stat-label">Edges</div>
-              <div className="stat-value">{connections.length}</div>
-            </div>
-          </div>
-
-          <div className="inspector-actions">
-            <Link
-              to="/ask"
-              className="btn btn-secondary"
-              style={{ width: '100%', textDecoration: 'none', textAlign: 'center' }}
+            </button>
+            <button
+              type="button"
+              className={`inspector-tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+              onClick={() => setActiveTab('chat')}
             >
-              &#10024; Explain with AI
-            </Link>
+              &#10024; AI Chat
+            </button>
           </div>
 
-          <div className="inspector-connections-section">
-            <div className="section-label">
-              Connected Relationships ({connections.length})
-            </div>
-            {connections.length > 0 ? (
-              connections.map((conn) => (
-                <div
-                  key={conn.id}
-                  className="connection-item"
-                  style={{ cursor: conn.targetNode ? 'pointer' : 'default' }}
-                  onClick={() => {
-                    if (conn.targetNode) {
-                      setSelectedNode(conn.targetNode);
-                    }
+          {activeTab === 'chat' ? (
+            <AIChat
+              repoUrl={repoUrl}
+              onCitationClick={handleCitationClick}
+            />
+          ) : (
+            <>
+              <div className="inspector-header">
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
                   }}
-                  title={conn.targetNode ? `Jump to ${conn.targetNode.name}` : ''}
                 >
-                  <span style={{ fontSize: '11px' }}>&bull; {conn.label}</span>
-                  <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>&rarr;</span>
-                </div>
-              ))
-            ) : (
-              <div style={{ color: 'var(--text-dim)', fontSize: '11px', padding: '6px 0' }}>
-                No direct connections recorded.
+                  Inspector
+                </span>
+                <span className="badge" style={{ fontSize: '10px' }}>
+                  {selectedNode ? 'Focused' : 'Idle'}
+                </span>
               </div>
-            )}
-          </div>
+
+              <h3 className="inspector-title">
+                {selectedNode?.name || 'No Selection'}
+              </h3>
+              <div className="inspector-subtitle">
+                {selectedNode?.file_path || 'Click any graph node to inspect'}
+              </div>
+
+              <div className="inspector-stats-row">
+                <div className="stat-box">
+                  <div className="stat-label">Type</div>
+                  <div className="stat-value" style={{ fontSize: '14px', textTransform: 'uppercase' }}>
+                    {selectedNode?.type || '-'}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">Lines</div>
+                  <div className="stat-value" style={{ fontSize: '14px' }}>
+                    {selectedNode?.start_line
+                      ? `${selectedNode.start_line}${selectedNode.end_line && selectedNode.end_line !== selectedNode.start_line ? `-${selectedNode.end_line}` : ''}`
+                      : '-'}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">Edges</div>
+                  <div className="stat-value">{connections.length}</div>
+                </div>
+              </div>
+
+              <div className="inspector-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ width: '100%', textAlign: 'center' }}
+                  onClick={() => setActiveTab('chat')}
+                >
+                  &#10024; Explain with AI
+                </button>
+              </div>
+
+              <div className="inspector-connections-section">
+                <div className="section-label">
+                  Connected Relationships ({connections.length})
+                </div>
+                {connections.length > 0 ? (
+                  connections.map((conn) => (
+                    <div
+                      key={conn.id}
+                      className="connection-item"
+                      style={{ cursor: conn.targetNode ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        if (conn.targetNode) {
+                          setSelectedNode(conn.targetNode);
+                        }
+                      }}
+                      title={conn.targetNode ? `Jump to ${conn.targetNode.name}` : ''}
+                    >
+                      <span style={{ fontSize: '11px' }}>&bull; {conn.label}</span>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>&rarr;</span>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ color: 'var(--text-dim)', fontSize: '11px', padding: '6px 0' }}>
+                    No direct connections recorded.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </aside>
       </div>
     </div>
