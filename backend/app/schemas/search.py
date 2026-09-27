@@ -16,6 +16,7 @@ class SearchResultItem(BaseModel):
     end_line: int
     source_code: str
     similarity_score: Optional[float] = None
+    reranker_score: Optional[float] = None
     retrieval_sources: List[str] = Field(default_factory=lambda: ["semantic"])
 
 

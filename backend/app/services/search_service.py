@@ -11,6 +11,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from rag.chunking import create_code_chunks
 from rag.retrieval import HybridRetriever
+from rag.evidence_ranking import CodeEvidenceRanker
 from app.services.repository_service import RepositoryService
 from app.services.analysis_service import AnalysisService
 
@@ -33,7 +34,9 @@ class SearchService:
         3. Builds architecture graph capturing calls, containment, and imports.
         4. Semantic retrieval finds conceptually related code chunks via FAISS.
         5. Structural retrieval expands known code relationships from semantic seeds.
-        6. Hybrid retrieval merges and deduplicates evidence without any learned reranker.
+        6. Produces complete deduplicated hybrid candidate pool.
+        7. Cross-encoder reranks the candidate pool against the user query.
+        8. Returns final top-K reranked results with full precision reranker_score.
         """
         if not query or not query.strip():
             raise HTTPException(status_code=400, detail="Search query cannot be empty.")
@@ -82,25 +85,39 @@ class SearchService:
         # 4. Build architecture graph capturing calls, contains, and imports
         graph = analysis_service.build_architecture_graph(repo_url)
 
-        # 5. Execute hybrid retrieval:
-        # Semantic retrieval finds conceptually related code via FAISS;
-        # Structural retrieval expands known AST relationships;
-        # Evidence is merged and deduplicated with no reranker.
+        # 5. Hybrid candidate generation:
+        # Generates complete deduplicated hybrid candidate pool from semantic FAISS retrieval
+        # and AST structural expansion.
         retriever = HybridRetriever(
             chunks=chunks,
             graph=graph,
             files=python_files,
         )
-        results = retriever.retrieve(
+        hybrid_candidates = retriever.retrieve(
             query=query,
             top_k=top_k,
             max_structural_expansion=top_k,
         )
 
+        # 6. Deterministic Code Evidence Ranking:
+        # Resolves duplicate spans and containment redundancies, then ranks candidates
+        # using AST symbol metadata, graph connectivity, identifier matching, and intent gating.
+        ranker = CodeEvidenceRanker(graph=graph)
+        ranked_results = ranker.rank(
+            query=query,
+            candidates=hybrid_candidates,
+            top_k=top_k,
+        )
+
+        # Ensure return contract matches SearchResultItem schema with reranker_score=None
+        for res in ranked_results:
+            res.setdefault("reranker_score", None)
+            res.pop("_evidence_score", None)
+
         return {
             "repository_url": repo_url,
             "query": query,
-            "results": results,
+            "results": ranked_results,
         }
 
     def search_codebase(self, query: str, repository_id: Optional[int] = None):
