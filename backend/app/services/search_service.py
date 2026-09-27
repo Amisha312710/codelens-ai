@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -12,6 +13,14 @@ if str(_REPO_ROOT) not in sys.path:
 from rag.chunking import create_code_chunks
 from rag.retrieval import HybridRetriever
 from rag.evidence_ranking import CodeEvidenceRanker
+from rag.generation import (
+    LLMProvider,
+    OpenAIProvider,
+    validate_context,
+    format_evidence_prompt,
+    extract_citations,
+    GROUNDING_SYSTEM_PROMPT,
+)
 from app.services.repository_service import RepositoryService
 from app.services.analysis_service import AnalysisService
 
@@ -118,6 +127,82 @@ class SearchService:
             "repository_url": repo_url,
             "query": query,
             "results": ranked_results,
+        }
+
+    def ask_repository(
+        self,
+        repo_url: str,
+        question: str,
+        top_k: int = 5,
+        provider: Optional[LLMProvider] = None,
+    ) -> Dict[str, Any]:
+        """
+        Answers natural-language codebase questions using grounded LLM generation over retrieved evidence.
+        Reuses the existing search_repository() pipeline without duplicating retrieval logic.
+        """
+        if not question or not question.strip():
+            raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+        # 1. Reuse existing search_repository pipeline (ingestion, AST, FAISS, graph, ranker, top-k)
+        search_res = self.search_repository(
+            repo_url=repo_url,
+            query=question,
+            top_k=top_k,
+        )
+        raw_evidence = search_res.get("results", [])
+
+        # 2. Context validation step (deduplicates spans, ensures non-empty code and valid metadata)
+        validated_evidence = validate_context(raw_evidence)
+
+        # 3. If no usable evidence exists, return early with grounded message without calling LLM
+        if not validated_evidence:
+            return {
+                "question": question,
+                "answer": "The available repository evidence is insufficient to answer this question.",
+                "citations": [],
+                "evidence_used": [],
+            }
+
+        # 4. Resolve LLM provider
+        if provider is None:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Server configuration error: OPENAI_API_KEY is not configured.",
+                )
+            provider = OpenAIProvider(api_key=api_key)
+
+        # 5. Format prompt and execute LLM generation
+        evidence_prompt = format_evidence_prompt(validated_evidence)
+        user_prompt = (
+            f"Question: {question.strip()}\n\n"
+            f"Supplied Repository Evidence:\n\n"
+            f"{evidence_prompt}\n\n"
+            f"Please provide a grounded answer with inline citations."
+        )
+
+        try:
+            answer = provider.generate(
+                prompt=user_prompt,
+                system_prompt=GROUNDING_SYSTEM_PROMPT,
+            )
+        except Exception as e:
+            # Controlled API error, no stack trace exposed to client
+            raise HTTPException(
+                status_code=502,
+                detail=f"LLM generation failed: {type(e).__name__}",
+            )
+
+        # 6. Parse citations only (without claiming verification yet)
+        citations = extract_citations(answer)
+
+        # 7. Return structured response
+        return {
+            "question": question,
+            "answer": answer,
+            "citations": citations,
+            "evidence_used": validated_evidence,
         }
 
     def search_codebase(self, query: str, repository_id: Optional[int] = None):

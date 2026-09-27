@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.search import SearchRequest, SearchResponse
+from app.schemas.search import SearchRequest, SearchResponse, AskRequest, AskResponse
 from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -23,6 +23,23 @@ def search_codebase(
     return service.search_repository(
         repo_url=payload.url,
         query=payload.query,
+        top_k=payload.top_k,
+    )
+
+
+@router.post("/ask", response_model=AskResponse)
+def ask_codebase(
+    payload: AskRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Answers a natural-language question about a repository using grounded LLM generation
+    over retrieved codebase evidence with predictable inline source citations.
+    """
+    service = SearchService(db_session=db)
+    return service.ask_repository(
+        repo_url=payload.url,
+        question=payload.question,
         top_k=payload.top_k,
     )
 

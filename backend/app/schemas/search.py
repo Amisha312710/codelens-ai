@@ -26,6 +26,19 @@ class SearchResponse(BaseModel):
     results: List[SearchResultItem]
 
 
+class AskRequest(BaseModel):
+    url: str = Field(..., description="Public GitHub repository URL")
+    question: str = Field(..., description="Natural language question about the codebase")
+    top_k: int = Field(default=5, ge=1, le=50, description="Maximum number of evidence items to retrieve")
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    citations: List[str]
+    evidence_used: List[SearchResultItem]
+
+
 # Retain legacy models for backwards compatibility if needed
 class SearchQuery(BaseModel):
     query: str
