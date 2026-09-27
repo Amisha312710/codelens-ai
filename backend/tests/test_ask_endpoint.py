@@ -13,6 +13,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from fastapi import HTTPException
 from app.services.search_service import SearchService
+from app.services.flow_service import FlowService
 from app.config import settings
 from rag.generation import (
     LLMProvider,
@@ -402,6 +403,262 @@ class TestAskEndpoint(unittest.TestCase):
         self.assertTrue("get_answer()" in joined or "hmm()" in joined or "?" in joined)
 
 
+class TestFlowService(unittest.TestCase):
+    def setUp(self):
+        self.flow_service = FlowService()
+        self.repo_url = "https://github.com/kennethreitz/samplemod"
+
+    def test_trace_flow_valid_root_function(self):
+        """18. Tracing valid root function ('hmm') returns root node and called functions."""
+        res = self.flow_service.trace_flow(
+            repo_url=self.repo_url,
+            root_function="hmm",
+            max_depth=3,
+        )
+        self.assertEqual(res["repository_url"], self.repo_url)
+        self.assertEqual(res["root_function"], "hmm")
+
+        nodes = res["nodes"]
+        self.assertGreaterEqual(len(nodes), 2)
+        root_node = nodes[0]
+        self.assertEqual(root_node["name"], "hmm")
+        self.assertEqual(root_node["file_path"], "sample/core.py")
+        self.assertEqual(root_node["start_line"], 9)
+        self.assertEqual(root_node["end_line"], 12)
+
+        node_names = [n["name"] for n in nodes]
+        self.assertIn("get_answer", node_names)
+        self.assertIn("get_hmm", node_names)
+
+        edges = res["edges"]
+        self.assertGreaterEqual(len(edges), 2)
+        for e in edges:
+            self.assertEqual(e["type"], "CALLS")
+            self.assertTrue(e["source"].startswith("func:"))
+            self.assertTrue(e["target"].startswith("func:"))
+
+    def test_trace_flow_depth_strictly_enforced(self):
+        """19. Call depth must be strictly between 1 and 3."""
+        # Depth 1: Only root node is returned
+        res_depth_1 = self.flow_service.trace_flow(
+            repo_url=self.repo_url,
+            root_function="hmm",
+            max_depth=1,
+        )
+        self.assertEqual(len(res_depth_1["nodes"]), 1)
+        self.assertEqual(res_depth_1["nodes"][0]["name"], "hmm")
+        self.assertEqual(len(res_depth_1["edges"]), 0)
+
+        # Depth 0 raises 400
+        with self.assertRaises(HTTPException) as ctx_0:
+            self.flow_service.trace_flow(
+                repo_url=self.repo_url,
+                root_function="hmm",
+                max_depth=0,
+            )
+        self.assertEqual(ctx_0.exception.status_code, 400)
+        self.assertIn("strictly between 1 and 3", ctx_0.exception.detail)
+
+        # Depth 4 raises 400 (per strict user rule: max_depth must be strictly 1-3 only)
+        with self.assertRaises(HTTPException) as ctx_4:
+            self.flow_service.trace_flow(
+                repo_url=self.repo_url,
+                root_function="hmm",
+                max_depth=4,
+            )
+        self.assertEqual(ctx_4.exception.status_code, 400)
+        self.assertIn("strictly between 1 and 3", ctx_4.exception.detail)
+
+    def test_trace_flow_no_internal_calls(self):
+        """20. Function with no calls returns only itself and 0 edges."""
+        res = self.flow_service.trace_flow(
+            repo_url=self.repo_url,
+            root_function="get_answer",
+            max_depth=3,
+        )
+        self.assertEqual(len(res["nodes"]), 1)
+        self.assertEqual(res["nodes"][0]["name"], "get_answer")
+        self.assertEqual(res["nodes"][0]["file_path"], "sample/helpers.py")
+        self.assertEqual(len(res["edges"]), 0)
+
+    def test_trace_flow_unknown_function_raises_404(self):
+        """21. Unknown function raises HTTPException 404."""
+        with self.assertRaises(HTTPException) as ctx:
+            self.flow_service.trace_flow(
+                repo_url=self.repo_url,
+                root_function="non_existent_function_xyz",
+                max_depth=3,
+            )
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertIn("couldn't find function", ctx.exception.detail)
+
+    def test_trace_flow_empty_inputs_raise_400(self):
+        """22. Empty URL or root function raises HTTPException 400."""
+        with self.assertRaises(HTTPException) as ctx1:
+            self.flow_service.trace_flow(
+                repo_url="",
+                root_function="hmm",
+            )
+        self.assertEqual(ctx1.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as ctx2:
+            self.flow_service.trace_flow(
+                repo_url=self.repo_url,
+                root_function="   ",
+            )
+        self.assertEqual(ctx2.exception.status_code, 400)
+
+    def test_trace_flow_invalid_repository_raises_400(self):
+        """23. Invalid repository URL raises HTTPException 400."""
+        with self.assertRaises(HTTPException) as ctx:
+            self.flow_service.trace_flow(
+                repo_url="https://github.com/nonexistent_org/nonexistent_repo_xyz",
+                root_function="hmm",
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_trace_flow_cycle_and_duplicate_prevention(self):
+        """24. Circular call graph does not loop infinitely and avoids duplicate nodes/edges."""
+        original_build = self.flow_service.analysis_service.build_architecture_graph
+        try:
+            self.flow_service.analysis_service.build_architecture_graph = lambda repo_url: {
+                "nodes": [
+                    {"id": "func:app.py:fn_a", "name": "fn_a", "type": "function", "file_path": "app.py", "start_line": 1, "end_line": 5},
+                    {"id": "func:app.py:fn_b", "name": "fn_b", "type": "function", "file_path": "app.py", "start_line": 10, "end_line": 15},
+                    {"id": "func:app.py:fn_c", "name": "fn_c", "type": "function", "file_path": "app.py", "start_line": 20, "end_line": 25},
+                    {"id": "func:app.py:fn_d", "name": "fn_d", "type": "function", "file_path": "app.py", "start_line": 30, "end_line": 35},
+                ],
+                "edges": [
+                    {"type": "calls", "source": "func:app.py:fn_a", "target": "func:app.py:fn_b"},
+                    {"type": "calls", "source": "func:app.py:fn_b", "target": "func:app.py:fn_c"},
+                    {"type": "calls", "source": "func:app.py:fn_c", "target": "func:app.py:fn_a"},  # cycle
+                    {"type": "calls", "source": "func:app.py:fn_a", "target": "func:app.py:fn_b"},  # duplicate edge
+                ],
+            }
+
+            res = self.flow_service.trace_flow(
+                repo_url=self.repo_url,
+                root_function="fn_a",
+                max_depth=3,
+            )
+
+            node_ids = [n["id"] for n in res["nodes"]]
+            self.assertEqual(len(node_ids), len(set(node_ids)))
+            self.assertIn("func:app.py:fn_a", node_ids)
+            self.assertIn("func:app.py:fn_b", node_ids)
+            self.assertIn("func:app.py:fn_c", node_ids)
+            self.assertNotIn("func:app.py:fn_d", node_ids)
+
+            edge_keys = [(e["source"], e["target"]) for e in res["edges"]]
+            self.assertEqual(len(edge_keys), len(set(edge_keys)))
+        finally:
+            self.flow_service.analysis_service.build_architecture_graph = original_build
+
+    def test_list_repository_functions(self):
+        """25. list_repository_functions returns sorted function list."""
+        funcs = self.flow_service.list_repository_functions(repo_url=self.repo_url)
+        self.assertIsInstance(funcs, list)
+        self.assertGreater(len(funcs), 0)
+        func_names = [f["name"] for f in funcs]
+        self.assertIn("hmm", func_names)
+        self.assertIn("get_answer", func_names)
+        self.assertIn("get_hmm", func_names)
+
+    def test_project_overview_grounded_fields(self):
+        """26. get_project_overview returns strictly grounded description, purpose, and problem solved."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        overview = service.get_project_overview(repo_url=self.repo_url)
+
+        self.assertIn("repository_name", overview)
+        self.assertIn("samplemod", overview["repository_name"])
+        self.assertIn("description", overview)
+        self.assertTrue(len(overview["description"]) > 10)
+        self.assertIn("problem_solved", overview)
+        self.assertIn("core_purpose", overview)
+        self.assertIsInstance(overview["key_features"], list)
+        self.assertGreater(len(overview["key_features"]), 0)
+        self.assertIsInstance(overview["use_cases"], list)
+        self.assertGreater(len(overview["use_cases"]), 0)
+
+    def test_project_overview_tech_stack_evidence(self):
+        """27. Tech stack items are marked directly_detected with verified sources."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        overview = service.get_project_overview(repo_url=self.repo_url)
+
+        tech_stack = overview.get("tech_stack", [])
+        self.assertGreater(len(tech_stack), 0)
+
+        for item in tech_stack:
+            self.assertEqual(item["detection_type"], "directly_detected")
+            self.assertTrue(len(item["source"]) > 0)
+            self.assertIn(item["category"], [
+                "Language", "Backend / Framework", "Testing", "Packaging / Build", "Infrastructure / Tooling"
+            ])
+
+        tech_names = [t["name"] for t in tech_stack]
+        self.assertTrue(any("Python" in name for name in tech_names))
+        self.assertTrue(any("unittest" in name or "nose" in name for name in tech_names))
+
+    def test_project_overview_conceptual_architecture(self):
+        """28. Conceptual architecture provides 3 functional layers."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        overview = service.get_project_overview(repo_url=self.repo_url)
+
+        layers = overview.get("conceptual_architecture", [])
+        self.assertGreaterEqual(len(layers), 2)
+        layer_ids = [l["id"] for l in layers]
+        self.assertIn("layer-1", layer_ids)
+        self.assertIn("layer-2", layer_ids)
+
+        for layer in layers:
+            self.assertTrue(len(layer["name"]) > 0)
+            self.assertTrue(len(layer["role"]) > 0)
+            self.assertTrue(len(layer["description"]) > 0)
+            self.assertIsInstance(layer["files"], list)
+
+    def test_project_overview_workflows_trace_flow(self):
+        """29. Key workflows identify root functions and step-by-step descriptions."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        overview = service.get_project_overview(repo_url=self.repo_url)
+
+        workflows = overview.get("workflows", [])
+        self.assertGreater(len(workflows), 0)
+
+        root_functions = [w["root_function"] for w in workflows]
+        self.assertIn("hmm", root_functions)
+
+        hmm_wf = next(w for w in workflows if w["root_function"] == "hmm")
+        self.assertTrue(len(hmm_wf["steps"]) >= 2)
+        self.assertTrue(any("get_answer" in step or "helpers" in step for step in hmm_wf["steps"]))
+
+    def test_project_overview_snapshot_facts(self):
+        """30. Snapshot facts accurately reflect file counts and modules."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        overview = service.get_project_overview(repo_url=self.repo_url)
+
+        snapshot = overview.get("snapshot", {})
+        self.assertEqual(snapshot.get("primary_language"), "Python")
+        self.assertGreaterEqual(snapshot.get("total_files", 0), 10)
+        self.assertGreaterEqual(snapshot.get("major_modules_count", 0), 1)
+        self.assertIn("sample", snapshot.get("major_modules", []))
+
+    def test_architecture_graph_includes_project_overview(self):
+        """31. build_architecture_graph returns project_overview seamlessly."""
+        from app.services.analysis_service import AnalysisService
+        service = AnalysisService()
+        graph = service.build_architecture_graph(repo_url=self.repo_url)
+
+        self.assertIn("project_overview", graph)
+        self.assertIsNotNone(graph["project_overview"])
+        self.assertEqual(graph["project_overview"]["repository_name"], "kennethreitz/samplemod")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

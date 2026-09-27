@@ -39,6 +39,36 @@ export async function getArchitectureGraph(repoUrl) {
 }
 
 /**
+ * Fetches the human-first project overview from the backend API
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @returns {Promise<object>} Project overview data
+ */
+export async function getProjectOverview(repoUrl) {
+  const response = await fetch(`${API_BASE_URL}/analysis/overview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: repoUrl }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Project overview request failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
  * Placeholder for repository analysis trigger
  * @param {string} repoUrl - Repository GitHub URL or identifier
  */
@@ -165,12 +195,70 @@ export async function getFile(repoId, filePath) {
 }
 
 /**
- * Placeholder for tracing execution flows
- * @param {string} repoId - Repository identifier
- * @param {string} entryPoint - Endpoint or function identifier
+ * Traces the static function call flow starting from a root function up to maxDepth (1-3).
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @param {string} rootFunction - Root function name or identifier
+ * @param {number} [maxDepth=3] - Call depth to trace (strictly 1–3, default 3)
+ * @returns {Promise<{repository_url: string, root_function: string, nodes: Array, edges: Array, total_nodes: number, total_edges: number}>}
  */
-export async function traceFlow(repoId, entryPoint) {
-  throw new Error(`traceFlow not implemented yet. Backend integration will occur in Milestone 5+. Entry: ${entryPoint}`);
+export async function traceFlow(repoUrl, rootFunction, maxDepth = 3) {
+  const depth = Math.min(Math.max(1, parseInt(maxDepth, 10) || 3), 3);
+  const response = await fetch(`${API_BASE_URL}/flows`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: repoUrl,
+      root_function: rootFunction,
+      max_depth: depth,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Flow tracing failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Retrieves the list of functions in the repository for the Code Flow selector
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @returns {Promise<{repository_url: string, functions: Array}>}
+ */
+export async function getFlowFunctions(repoUrl) {
+  const response = await fetch(`${API_BASE_URL}/flows/functions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: repoUrl }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Failed to list functions with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
 }
 
 /**
@@ -185,6 +273,7 @@ export async function generateWalkthrough(repoId, options = {}) {
 export default {
   API_BASE_URL,
   getArchitectureGraph,
+  getProjectOverview,
   getSourceCode,
   analyzeRepository,
   getRepository,
@@ -192,5 +281,6 @@ export default {
   askRepository,
   getFile,
   traceFlow,
+  getFlowFunctions,
   generateWalkthrough,
 };

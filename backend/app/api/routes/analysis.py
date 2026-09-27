@@ -8,6 +8,7 @@ from app.schemas.analysis import (
     FileASTAnalysisResult,
     FileSourceCodeRequest,
     FileSourceCodeResponse,
+    ProjectOverview,
     RepositoryAnalysisRequest,
     RepositoryAnalysisResponse,
 )
@@ -74,4 +75,17 @@ def get_file_source(
         start_line=payload.start_line,
         end_line=payload.end_line,
     )
+
+
+@router.post("/overview", response_model=ProjectOverview)
+def get_project_overview(
+    payload: RepositoryAnalysisRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Synthesizes a grounded, human-first project overview directly from
+    repository documentation, manifests, imports, and AST relationships.
+    """
+    service = AnalysisService(db_session=db)
+    return service.get_project_overview(repo_url=payload.url)
 

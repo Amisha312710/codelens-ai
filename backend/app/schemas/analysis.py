@@ -106,6 +106,55 @@ class GraphEdge(BaseModel):
     type: str  # "contains" | "imports" | "calls"
 
 
+class TechStackItem(BaseModel):
+    name: str
+    category: str  # "Language" | "Backend / Framework" | "Testing" | "Packaging / Build" | "Infrastructure / Tooling"
+    detection_type: str = "directly_detected"  # "directly_detected" | "inferred"
+    source: str  # e.g. "setup.py", "requirements.txt", "Makefile", "imports"
+
+
+class ConceptualLayer(BaseModel):
+    id: str
+    name: str
+    role: str  # "Entry & Interface" | "Core Logic" | "Helpers & Scaffolding"
+    description: str
+    files: List[str] = []
+    key_symbols: List[str] = []
+
+
+class KeyWorkflow(BaseModel):
+    id: str
+    title: str
+    root_function: str
+    description: str
+    steps: List[str] = []
+
+
+class ProjectSnapshot(BaseModel):
+    primary_language: str
+    languages: List[str] = []
+    total_files: int
+    major_modules_count: int
+    major_modules: List[str] = []
+    dependencies_count: int
+    internal_dependencies_count: int
+
+
+class ProjectOverview(BaseModel):
+    repository_url: str
+    repository_name: str
+    description: str
+    problem_solved: str
+    core_purpose: str
+    key_features: List[str] = []
+    use_cases: List[str] = []
+    tech_stack: List[TechStackItem] = []
+    conceptual_architecture: List[ConceptualLayer] = []
+    workflows: List[KeyWorkflow] = []
+    snapshot: ProjectSnapshot
+    suggested_questions: List[str] = []
+
+
 class ArchitectureGraphResponse(BaseModel):
     repository_url: str
     repository_name: str
@@ -113,6 +162,7 @@ class ArchitectureGraphResponse(BaseModel):
     edges: List[GraphEdge]
     total_nodes: int
     total_edges: int
+    project_overview: Optional[ProjectOverview] = None
 
 
 class FileSourceCodeRequest(BaseModel):

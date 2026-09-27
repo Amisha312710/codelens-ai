@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar.js';
 import ArchitectureGraph from '../components/ArchitectureGraph.js';
 import CodeViewer from '../components/CodeViewer.js';
 import AIChat from '../components/AIChat.js';
-import { getArchitectureGraph, getSourceCode } from '../services/api.js';
+import { getArchitectureGraph, getSourceCode, getProjectOverview } from '../services/api.js';
 import '../styles/dashboard.css';
 import '../styles/ai.css';
 
@@ -17,6 +17,10 @@ export default function Dashboard() {
   const location = useLocation();
 
   const [graphData, setGraphData] = useState(location.state?.graphData || null);
+  const [overviewData, setOverviewData] = useState(
+    location.state?.graphData?.project_overview || null
+  );
+  const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'architecture'
   const [selectedNode, setSelectedNode] = useState(null);
   const [loading, setLoading] = useState(!location.state?.graphData);
   const [error, setError] = useState(null);
@@ -34,12 +38,27 @@ export default function Dashboard() {
     location.state?.graphData?.repository_url ||
     'https://github.com/kennethreitz/samplemod';
 
+  const repoName =
+    overviewData?.repository_name ||
+    graphData?.repository_name ||
+    repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '');
+
   const loadGraph = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await getArchitectureGraph(repoUrl);
       setGraphData(data);
+      if (data.project_overview) {
+        setOverviewData(data.project_overview);
+      } else {
+        try {
+          const ov = await getProjectOverview(repoUrl);
+          setOverviewData(ov);
+        } catch (_) {
+          // Graceful fallback
+        }
+      }
       if (data.nodes && data.nodes.length > 0) {
         setSelectedNode(data.nodes[0]);
       }
@@ -52,6 +71,9 @@ export default function Dashboard() {
 
   const handleCitationClick = useCallback(
     (filePath, startLine, endLine) => {
+      // Switch view mode to architecture to reveal graph and Monaco code viewer
+      setViewMode('architecture');
+
       const existingNode =
         graphData?.nodes?.find(
           (n) => n.file_path === filePath && n.start_line === startLine
@@ -72,10 +94,15 @@ export default function Dashboard() {
   useEffect(() => {
     if (!graphData) {
       loadGraph();
-    } else if (!selectedNode && graphData.nodes && graphData.nodes.length > 0) {
-      setSelectedNode(graphData.nodes[0]);
+    } else {
+      if (!overviewData && graphData.project_overview) {
+        setOverviewData(graphData.project_overview);
+      }
+      if (!selectedNode && graphData.nodes && graphData.nodes.length > 0) {
+        setSelectedNode(graphData.nodes[0]);
+      }
     }
-  }, [graphData, selectedNode, loadGraph]);
+  }, [graphData, selectedNode, overviewData, loadGraph]);
 
   // Retrieve source code whenever selectedNode changes
   useEffect(() => {
@@ -180,11 +207,403 @@ export default function Dashboard() {
     return result;
   }, [selectedNode, graphData, nodeMap]);
 
+  // Group tech stack items by category
+  const techByCategory = useMemo(() => {
+    if (!overviewData?.tech_stack) return {};
+    const groups = {};
+    overviewData.tech_stack.forEach((item) => {
+      const cat = item.category || 'Other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    return groups;
+  }, [overviewData]);
+
   return (
     <div className="dashboard-page">
       <Navbar />
 
-      <div className="dashboard-layout">
+      {/* Top Header & Navigation Action */}
+      <div className="dashboard-top-nav-bar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <a
+            href={repoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="overview-repo-pill"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+              />
+            </svg>
+            <span>{repoName}</span>
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>&nearr;</span>
+          </a>
+        </div>
+
+        <div>
+          {viewMode === 'overview' ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setViewMode('architecture')}
+              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              Explore Architecture Graph &rarr;
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setViewMode('overview')}
+              style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              &larr; Back to Project Overview
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* View Mode 1: Human-First Project Understanding Dashboard */}
+      {viewMode === 'overview' && (
+        <main className="dashboard-overview-page">
+          <div className="dashboard-overview-container">
+            {/* Loading state */}
+            {loading && !overviewData && (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+                <div className="badge-dot" style={{ width: '14px', height: '14px', margin: '0 auto 12px', animation: 'pulse 1.5s infinite' }} />
+                <h3>Analyzing repository &amp; synthesizing understanding...</h3>
+                <p style={{ fontSize: '13px', color: 'var(--text-dim)' }}>Extracting README, manifests, AST relationships, and architecture flow.</p>
+              </div>
+            )}
+
+            {/* Error state */}
+            {error && !loading && (
+              <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-md)', padding: '16px 20px', color: '#fca5a5' }}>
+                <strong>Analysis Error:</strong> {error}
+                <div style={{ marginTop: '10px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={loadGraph} style={{ fontSize: '12px' }}>
+                    Retry Analysis
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(!loading || overviewData) && (
+              <>
+                {/* 1. Project Header & Snapshot */}
+                <header className="overview-hero">
+                  <div>
+                    <h1 className="overview-title">
+                      {overviewData?.repository_name?.split('/')?.pop() || repoName.split('/').pop() || 'Project Overview'}
+                    </h1>
+                  </div>
+
+                  <p className="overview-description">
+                    {overviewData?.description ||
+                      'A modular codebase analyzed and indexed by CodeLens AI. Explore its core purpose, detected tech stack, and execution flows below.'}
+                  </p>
+
+                  {/* Snapshot Metric Cards */}
+                  <div className="snapshot-grid">
+                    <div className="snapshot-card">
+                      <div className="snapshot-label">Primary Language</div>
+                      <div className="snapshot-val">
+                        {overviewData?.snapshot?.primary_language || 'Python'}
+                      </div>
+                      <div className="snapshot-sub">
+                        {overviewData?.snapshot?.languages?.[0] || '100% of codebase'}
+                      </div>
+                    </div>
+
+                    <div className="snapshot-card">
+                      <div className="snapshot-label">Total Files</div>
+                      <div className="snapshot-val">
+                        {overviewData?.snapshot?.total_files ?? graphData?.total_nodes ?? 0}
+                      </div>
+                      <div className="snapshot-sub">Source &amp; configuration files</div>
+                    </div>
+
+                    <div className="snapshot-card">
+                      <div className="snapshot-label">Major Modules</div>
+                      <div className="snapshot-val">
+                        {overviewData?.snapshot?.major_modules_count ?? 1}
+                      </div>
+                      <div className="snapshot-sub">
+                        {overviewData?.snapshot?.major_modules?.length > 0
+                          ? overviewData.snapshot.major_modules.join(', ')
+                          : 'Root package'}
+                      </div>
+                    </div>
+
+                    <div className="snapshot-card">
+                      <div className="snapshot-label">Dependencies</div>
+                      <div className="snapshot-val">
+                        {overviewData?.snapshot?.dependencies_count ?? graphData?.total_edges ?? 0}
+                      </div>
+                      <div className="snapshot-sub">
+                        {overviewData?.snapshot?.internal_dependencies_count ?? 0} internal module links
+                      </div>
+                    </div>
+                  </div>
+                </header>
+
+                {/* 2. What This Project Does */}
+                <section className="overview-section">
+                  <div className="section-header-group">
+                    <div>
+                      <h2 className="section-title">What This Project Does</h2>
+                      <div className="section-subtitle">
+                        High-level purpose and key capabilities grounded in repository documentation
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="purpose-cards-grid">
+                    {/* Core Purpose & Problem Solved */}
+                    <div className="purpose-card">
+                      <div className="purpose-card-title">Core Purpose &amp; Problem Solved</div>
+                      <div className="purpose-body-text">
+                        {overviewData?.core_purpose || 'Provides modular software architecture for developer tooling.'}
+                      </div>
+                      <div className="purpose-highlight-box">
+                        <strong>Problem Solved: </strong>
+                        {overviewData?.problem_solved ||
+                          'Solves architectural organization and testing challenges by establishing clean module separation.'}
+                      </div>
+
+                      {overviewData?.use_cases?.length > 0 && (
+                        <div style={{ marginTop: '8px' }}>
+                          <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '6px' }}>
+                            Likely Use Cases
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                            {overviewData.use_cases.map((uc, idx) => (
+                              <li key={idx}>{uc}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Key Features */}
+                    <div className="purpose-card">
+                      <div className="purpose-card-title">Key Features &amp; Capabilities</div>
+                      <div className="features-list">
+                        {(overviewData?.key_features || [
+                          'Modular architecture with clean package boundaries.',
+                          'Automated test suite integration.',
+                          'Standardized distribution and packaging.',
+                        ]).map((feature, idx) => (
+                          <div key={idx} className="feature-item">
+                            <span className="feature-icon">&#10003;</span>
+                            <span>{feature}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 3. Technology Stack */}
+                <section className="overview-section">
+                  <div className="section-header-group">
+                    <div>
+                      <h2 className="section-title">Technology Stack</h2>
+                      <div className="section-subtitle">
+                        Categorized technologies verified directly from manifests and source files
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="tech-stack-cards-grid">
+                    {Object.keys(techByCategory).length > 0 ? (
+                      Object.entries(techByCategory).map(([category, items]) => (
+                        <div key={category} className="tech-category-card">
+                          <div className="tech-category-header">
+                            <span>{category}</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                              {items.length} {items.length === 1 ? 'item' : 'items'}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {items.map((tech, idx) => (
+                              <div key={idx} className="tech-item-row">
+                                <div className="tech-item-header">
+                                  <span>{tech.name}</span>
+                                </div>
+                                <div className="tech-item-source">{tech.source}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '20px', color: 'var(--text-dim)', fontSize: '13px' }}>
+                        No external frameworks detected (pure Python standard library package).
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* 4. How It Is Built (Conceptual Architecture) */}
+                <section className="overview-section">
+                  <div className="section-header-group">
+                    <div>
+                      <h2 className="section-title">How It Is Built (Conceptual Architecture)</h2>
+                      <div className="section-subtitle">
+                        A simplified 3-tier view of how the system is structured into functional layers
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="conceptual-architecture-flow">
+                    {(overviewData?.conceptual_architecture || []).map((layer, idx) => (
+                      <React.Fragment key={layer.id || idx}>
+                        <div className="layer-card">
+                          <div className="layer-card-header">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span className="layer-badge">Tier {idx + 1}</span>
+                              <span className="layer-title">{layer.name}</span>
+                            </div>
+                            <span className="layer-role">{layer.role}</span>
+                          </div>
+
+                          <div className="layer-description">{layer.description}</div>
+
+                          <div className="layer-meta-row">
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginRight: '4px', alignSelf: 'center' }}>
+                              Files:
+                            </span>
+                            {(layer.files || []).map((fp, fIdx) => (
+                              <span key={fIdx} className="layer-file-pill">
+                                {fp}
+                              </span>
+                            ))}
+
+                            {layer.key_symbols?.length > 0 && (
+                              <>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px', marginRight: '4px', alignSelf: 'center' }}>
+                                  Key symbols:
+                                </span>
+                                {layer.key_symbols.map((sym, sIdx) => (
+                                  <span key={sIdx} className="layer-symbol-pill">
+                                    {sym}()
+                                  </span>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {idx < (overviewData?.conceptual_architecture?.length || 0) - 1 && (
+                          <div className="layer-connector">
+                            <span>&darr;</span>
+                            <span>{idx === 0 ? 'initializes & delegates to domain logic' : 'calls helper subroutines & verified by tests'}</span>
+                            <span>&darr;</span>
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+
+                    <div className="explore-graph-cta-card">
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '14px', color: '#c7d2fe' }}>
+                          Ready for a deep dive into every class and function connection?
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Explore all {graphData?.total_nodes || 15} nodes and {graphData?.total_edges || 14} dependencies with the interactive React Flow visualizer and Monaco source inspector.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => setViewMode('architecture')}
+                        style={{ flexShrink: 0, padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Explore Architecture Graph &rarr;
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 5. Understand How It Works (Key Workflows) */}
+                <section className="overview-section">
+                  <div className="section-header-group">
+                    <div>
+                      <h2 className="section-title">Understand How It Works (Key Workflows)</h2>
+                      <div className="section-subtitle">
+                        Important execution flows traced directly from static AST calls &mdash; click Trace Flow to visualize each step
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="workflows-container">
+                    {(overviewData?.workflows || []).map((wf) => (
+                      <div key={wf.id} className="workflow-card">
+                        <div className="workflow-header">
+                          <h3 className="workflow-title">{wf.title}</h3>
+                          <div className="workflow-desc">{wf.description}</div>
+                        </div>
+
+                        <div className="workflow-steps-list">
+                          {wf.steps?.map((step, sIdx) => (
+                            <div key={sIdx} className="workflow-step-item">
+                              <span className="workflow-step-num">{sIdx + 1}</span>
+                              <span>{step}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div style={{ marginTop: '8px' }}>
+                          <Link
+                            to="/flow"
+                            state={{ repoUrl, rootFunction: wf.root_function }}
+                            className="btn btn-primary"
+                            style={{ width: '100%', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px' }}
+                          >
+                            <span>&#9655;</span> Trace Code Flow
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* 6. Ask CodeLens (Integrated Assistant) */}
+                <section className="overview-section">
+                  <div className="section-header-group">
+                    <div>
+                      <h2 className="section-title">Ask CodeLens</h2>
+                      <div className="section-subtitle">
+                        Ask architectural questions grounded strictly in this repository's real source code
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ask-codelens-wrapper">
+                    {/* Embedded Ask AI 2.0 Assistant */}
+                    <div className="ask-embedded-chat-dock">
+                      <AIChat
+                        repoUrl={repoUrl}
+                        onCitationClick={handleCitationClick}
+                        suggestedQuestions={overviewData?.suggested_questions}
+                      />
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* View Mode 2: Detailed 3-Column Architecture Explorer, Graph & Source Viewer */}
+      {viewMode === 'architecture' && (
+        <div className="dashboard-layout">
         {/* Left Column: Explorer */}
         <aside className="dashboard-explorer">
           <div className="explorer-header">
@@ -430,6 +849,16 @@ export default function Dashboard() {
               </div>
 
               <div className="inspector-actions">
+                {selectedNode?.type === 'function' && (
+                  <Link
+                    to="/flow"
+                    state={{ repoUrl, rootFunction: selectedNode.name }}
+                    className="btn btn-primary"
+                    style={{ width: '100%', textAlign: 'center', marginBottom: '8px', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  >
+                    <span>&#9655;</span> Trace Code Flow
+                  </Link>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -471,6 +900,7 @@ export default function Dashboard() {
           )}
         </aside>
       </div>
+      )}
     </div>
   );
 }

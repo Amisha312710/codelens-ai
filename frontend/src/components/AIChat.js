@@ -79,8 +79,9 @@ function formatSources(sources) {
  * @param {object} props
  * @param {string} props.repoUrl - Currently analyzed repository URL
  * @param {function} props.onCitationClick - Callback (filePath, startLine, endLine) -> void
+ * @param {string[]} [props.suggestedQuestions] - Repository-grounded prompt suggestions
  */
-export default function AIChat({ repoUrl = '', onCitationClick }) {
+export default function AIChat({ repoUrl = '', onCitationClick, suggestedQuestions = [] }) {
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState('beginner');
@@ -175,27 +176,14 @@ export default function AIChat({ repoUrl = '', onCitationClick }) {
 
   return (
     <div className="ai-chat-container">
-      {/* Header */}
+      {/* Unified Header with Brand, Mode Selector, and New Chat */}
       <div className="ai-chat-header">
         <div className="ai-chat-brand">
           <span style={{ color: 'var(--accent-primary)' }}>&#10022;</span>
           <span>CODELENS AI</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            className="ai-chat-new-btn"
-            onClick={handleNewChat}
-            title="Start a new chat conversation"
-          >
-            + New Chat
-          </button>
-        </div>
-      </div>
 
-      {/* Mode Selector */}
-      <div className="ai-mode-bar">
-        <span className="ai-mode-label">Explain:</span>
+        {/* Primary Explanation Mode Selector */}
         <div className="ai-mode-selector" role="group" aria-label="Explanation style">
           <button
             type="button"
@@ -222,16 +210,46 @@ export default function AIChat({ repoUrl = '', onCitationClick }) {
             Interview
           </button>
         </div>
+
+        <button
+          type="button"
+          className="ai-chat-new-btn"
+          onClick={handleNewChat}
+          title="Start a new chat conversation"
+        >
+          + New Chat
+        </button>
       </div>
 
       {/* Conversation Scroll Timeline */}
       <div className="ai-chat-content-scroll" ref={scrollRef}>
         {messages.length === 0 && !loading && (
           <div className="ai-chat-empty-state">
-            <span style={{ fontSize: '11px', color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.6 }}>
-              Ask questions about functions, classes, or architecture in this repository.
-              Use <strong>Beginner</strong> for simple everyday analogies, <strong>Developer</strong> for technical deep-dives, or <strong>Interview</strong> for structured architectural explanations.
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, maxWidth: '520px' }}>
+              Ask questions about functions, classes, or architecture in this repository. Answers are strictly grounded in real source evidence.
             </span>
+
+            {suggestedQuestions && suggestedQuestions.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '560px', marginTop: '16px' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'center' }}>
+                  Suggested Questions
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+                  {suggestedQuestions.map((q, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="question-chip-btn"
+                      onClick={() => submitQuestion(q)}
+                      disabled={loading}
+                    >
+                      <span style={{ color: 'var(--accent-primary)', marginRight: '4px' }}>&#10022;</span>
+                      <span>{q}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
