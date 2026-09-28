@@ -1,170 +1,260 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
-import { mockAISuggestions, mockRepository } from '../data/mockData.js';
+import AIChat from '../components/AIChat.js';
+import CodeViewer from '../components/CodeViewer.js';
+import { getProjectOverview, getSourceCode } from '../services/api.js';
 import '../styles/ai.css';
 
 /**
- * Ask AI Page - Placeholder Shell
- * Visual Source: Stitch Design Screen 4
+ * Dedicated Ask CodeLens Page
+ * Full-page AI workspace focused on the AIChat experience with
+ * dynamic repository context, grounded Q&A, and citation source inspection drawer.
  */
 export default function AskAIPage() {
+  const location = useLocation();
+
+  // Active repository URL passed via route state or URL query parameter
+  const repoUrl = (
+    location.state?.repoUrl ||
+    new URLSearchParams(location.search).get('repo') ||
+    ''
+  ).trim();
+
+  let displayRepoName = '';
+  if (repoUrl) {
+    displayRepoName = repoUrl
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/\.git$/, '')
+      .replace(/\/$/, '');
+  }
+
+  // Repository-grounded suggested questions
+  const [suggestedQuestions, setSuggestedQuestions] = useState(
+    location.state?.suggestedQuestions || []
+  );
+
+  // Citation code inspection drawer state
+  const [activeCitation, setActiveCitation] = useState(null);
+  const [citationSource, setCitationSource] = useState({ code: '', language: 'python' });
+  const [citationLoading, setCitationLoading] = useState(false);
+  const [citationError, setCitationError] = useState(null);
+  const sourceCacheRef = useRef(new Map());
+
+  // Fetch suggested questions if not provided in route state
+  useEffect(() => {
+    if (suggestedQuestions.length > 0 || !repoUrl) return;
+
+    let isMounted = true;
+    getProjectOverview(repoUrl)
+      .then((overview) => {
+        if (isMounted && overview?.suggested_questions?.length) {
+          setSuggestedQuestions(overview.suggested_questions);
+        }
+      })
+      .catch(() => {
+        // Silently ignore if overview is unavailable
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [repoUrl, suggestedQuestions.length]);
+
+  // Handle citation clicks from AIChat responses or evidence cards
+  const handleCitationClick = useCallback((filePath, startLine, endLine) => {
+    if (!filePath) return;
+    setActiveCitation({
+      filePath,
+      startLine: Number(startLine) || 1,
+      endLine: Number(endLine) || Number(startLine) || 1,
+    });
+  }, []);
+
+  // Fetch file source when a citation is selected
+  useEffect(() => {
+    if (!activeCitation?.filePath || !repoUrl) {
+      setCitationSource({ code: '', language: 'python' });
+      setCitationError(null);
+      setCitationLoading(false);
+      return;
+    }
+
+    const { filePath, startLine, endLine } = activeCitation;
+
+    if (sourceCacheRef.current.has(filePath)) {
+      setCitationSource(sourceCacheRef.current.get(filePath));
+      setCitationLoading(false);
+      setCitationError(null);
+      return;
+    }
+
+    let isMounted = true;
+    setCitationLoading(true);
+    setCitationError(null);
+
+    getSourceCode(repoUrl, filePath, startLine, endLine)
+      .then((res) => {
+        if (isMounted) {
+          const sourceData = {
+            code: res.source_code || '',
+            language: res.language || 'python',
+          };
+          sourceCacheRef.current.set(filePath, sourceData);
+          setCitationSource(sourceData);
+          setCitationLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setCitationError(err.message || 'Failed to load source code for citation');
+          setCitationLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeCitation, repoUrl]);
+
+  // Dismiss drawer on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && activeCitation) {
+        setActiveCitation(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeCitation]);
+
   return (
-    <div className="app-container">
+    <div className="ask-page-layout">
       <Navbar />
 
-      <main className="ai-page">
-        <div className="ai-container">
-          {/* Header */}
-          <div className="ai-header-group">
-            <div className="ai-tagline-row">
-              <span className="badge badge-ai">&bull; Codebase Q&amp;A</span>
+      {/* Top Header */}
+      <header className="ask-page-top-header">
+        <div className="ask-header-left">
+          <Link
+            to="/dashboard"
+            state={{ repoUrl }}
+            className="btn btn-ghost"
+            style={{
+              fontSize: '12px',
+              padding: '5px 10px',
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            title="Return to Overview Dashboard"
+          >
+            <span>&larr;</span> Overview
+          </Link>
+          <div className="ask-header-text">
+            <h1 className="ask-page-heading">
+              <span>Ask CodeLens</span>
+            </h1>
+            <p className="ask-page-subheading">
+              Understand this repository through grounded AI answers
+            </p>
+          </div>
+        </div>
+
+        <div className="ask-header-right">
+          {displayRepoName ? (
+            <div className="ask-header-repo-chip" title={repoUrl}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+              <span>{displayRepoName}</span>
               <span style={{ color: 'var(--text-muted)' }}>&bull;</span>
-              <span style={{ color: 'var(--accent-cyan)' }}>FastAPI Engine</span>
+              <span style={{ color: 'var(--accent-cyan)' }}>main</span>
             </div>
-
-            <h1 className="ai-title">What do you want to understand?</h1>
-            <p className="ai-description">
-              Ask architectural questions across this repository. CodeLens analyzes AST definitions, control flow graph paths, and static source references to generate verifiable proofs.
-            </p>
-          </div>
-
-          {/* Suggested Prompts */}
-          <div className="ai-suggestions-grid">
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)', alignSelf: 'center', marginRight: '4px' }}>
-              Suggested:
+          ) : (
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+              No active repository
             </span>
-            {mockAISuggestions.map((prompt, index) => (
-              <button key={index} type="button" className="ai-suggestion-chip">
-                <span style={{ color: 'var(--accent-primary)', marginRight: '4px' }}>#</span>
-                {prompt}
-              </button>
-            ))}
-          </div>
+          )}
+        </div>
+      </header>
 
-          {/* Investigated Query Card */}
-          <div className="ai-query-card">
-            <div className="ai-query-card-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'var(--accent-primary)' }}>&bull;</span>
-                <span style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Investigated Query</span>
+      {/* Main Content Workspace */}
+      <main className="ask-workspace-container">
+        <div className="ask-workspace-content">
+          {!repoUrl ? (
+            <div className="ask-no-repo-card">
+              <div className="ask-no-repo-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
               </div>
-              <div>Analyzed {mockRepository.name} (main)</div>
-            </div>
-            <div className="ai-query-text">
-              &ldquo;How does authentication work when a user logs in?&rdquo;
-            </div>
-          </div>
-
-          {/* AI Response Card */}
-          <div className="ai-response-card">
-            <div className="ai-response-header">
-              <div className="ai-brand-badge">
-                <span style={{ color: 'var(--accent-primary)' }}>&#10022;</span>
-                <span>CODELENS</span>
-              </div>
-              <div className="ai-grounded-badge">
-                <span>&#10003;</span>
-                <span>Grounded in repository source</span>
-              </div>
-            </div>
-
-            <h2 className="ai-section-title">Authentication Flow</h2>
-            <p className="ai-section-text">
-              The login request enters through the authentication route, where submitted credentials are validated against the stored password hash before an asymmetric JWT access token is generated. Execution leverages FastAPI&apos;s dependency injection to parse headers prior to user identity serialization.
-            </p>
-
-            {/* Sequence Map */}
-            <div className="ai-sequence-container">
-              <div className="ai-sequence-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ color: 'var(--accent-cyan)' }}>&#8644;</span>
-                  <span style={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Execution Sequence Map</span>
-                </div>
-                <div>5 sequential steps identified</div>
-              </div>
-
-              <div className="ai-sequence-steps">
-                <div className="sequence-step-box">
-                  <div className="sequence-step-num">01</div>
-                  <div className="sequence-step-title">Login Route</div>
-                </div>
-                <span style={{ color: 'var(--accent-cyan)' }}>&rarr;</span>
-
-                <div className="sequence-step-box">
-                  <div className="sequence-step-num">02</div>
-                  <div className="sequence-step-title">Authenticate User</div>
-                </div>
-                <span style={{ color: 'var(--accent-cyan)' }}>&rarr;</span>
-
-                <div className="sequence-step-box highlight">
-                  <div className="sequence-step-num">03 &bull; AUDIT</div>
-                  <div className="sequence-step-title">Verify Password</div>
-                </div>
-                <span style={{ color: 'var(--accent-cyan)' }}>&rarr;</span>
-
-                <div className="sequence-step-box">
-                  <div className="sequence-step-num">04</div>
-                  <div className="sequence-step-title">Create Access Token</div>
-                </div>
-                <span style={{ color: 'var(--accent-cyan)' }}>&rarr;</span>
-
-                <div className="sequence-step-box">
-                  <div className="sequence-step-num">05</div>
-                  <div className="sequence-step-title">Return Token</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Citations / Proofs */}
-            <div style={{ marginBottom: '8px', fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-              SOURCE GROUNDING PROOFS &bull; Click citation to inspect source
-            </div>
-            <div className="ai-proofs-row">
-              <div className="proof-badge" style={{ backgroundColor: 'rgba(99, 102, 241, 0.15)', borderColor: 'var(--accent-primary)' }}>
-                <span>&bull; oauth2.py &bull; L42&ndash;67</span>
-                <span>&rarr;</span>
-              </div>
-              <div className="proof-badge">
-                <span>&bull; routing.py &bull; L104&ndash;120</span>
-              </div>
-              <div className="proof-badge">
-                <span>&bull; dependencies.py &bull; L18&ndash;31</span>
-              </div>
-            </div>
-
-            {/* Bottom Actions */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button type="button" className="btn btn-secondary" style={{ fontSize: '12px' }}>
-                  Show evidence
-                </button>
-                <button type="button" className="btn btn-ghost" style={{ fontSize: '12px' }}>
-                  Copy summary
-                </button>
-              </div>
-              <Link to="/flow" className="btn btn-primary" style={{ fontSize: '12px' }}>
-                View this flow in Architecture &rarr;
+              <h2 className="ask-no-repo-title">No Repository Selected</h2>
+              <p className="ask-no-repo-desc">
+                Please analyze a GitHub repository first to start asking architectural and code-level questions grounded in static AST proofs.
+              </p>
+              <Link
+                to="/"
+                className="btn btn-primary"
+                style={{ marginTop: '20px', textDecoration: 'none', padding: '10px 20px', fontSize: '13px' }}
+              >
+                Go to Repository Analyzer &rarr;
               </Link>
             </div>
-          </div>
-        </div>
-
-        {/* Follow-up Question Dock */}
-        <div className="ai-dock-wrapper">
-          <div className="ai-dock-input-bar">
-            <input 
-              type="text" 
-              className="ai-dock-field" 
-              placeholder="Ask a follow-up... e.g. Where is the password actually verified?" 
-              readOnly 
-            />
-            <button type="button" className="btn btn-primary" style={{ fontSize: '12px', padding: '6px 14px' }}>
-              Ask &rarr;
-            </button>
-          </div>
+          ) : (
+            <div className="ask-chat-full-card">
+              <AIChat
+                repoUrl={repoUrl}
+                onCitationClick={handleCitationClick}
+                suggestedQuestions={suggestedQuestions}
+              />
+            </div>
+          )}
         </div>
       </main>
+
+      {/* Slide-out Citation Code Inspection Drawer */}
+      {activeCitation && (
+        <div className="ask-citation-drawer-overlay" onClick={() => setActiveCitation(null)}>
+          <div className="ask-citation-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="ask-drawer-header">
+              <div className="ask-drawer-title-group">
+                <span className="ask-drawer-title">{activeCitation.filePath}</span>
+                {activeCitation.startLine && (
+                  <span className="ask-drawer-lines">
+                    Lines {activeCitation.startLine}
+                    {activeCitation.endLine && activeCitation.endLine !== activeCitation.startLine
+                      ? `-${activeCitation.endLine}`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="ask-drawer-close-btn"
+                onClick={() => setActiveCitation(null)}
+                aria-label="Close Code Viewer"
+                title="Close (Esc)"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="ask-drawer-body">
+              <CodeViewer
+                filePath={activeCitation.filePath}
+                code={citationSource.code}
+                language={citationSource.language}
+                startLine={activeCitation.startLine}
+                endLine={activeCitation.endLine}
+                loading={citationLoading}
+                error={citationError}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -178,4 +178,42 @@ class FileSourceCodeResponse(BaseModel):
     source_code: str
     start_line: Optional[int] = None
     end_line: Optional[int] = None
+
+
+class ExploreRequest(BaseModel):
+    url: str
+    query: str
+    selected_node_id: Optional[str] = None
+
+
+class FoundItem(BaseModel):
+    id: str
+    file_path: str
+    symbol_name: Optional[str] = None
+    symbol_type: str = "file"  # "function" | "class" | "file"
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+    category: Optional[str] = None
+    evidence_reason: Optional[str] = None
+
+
+class ChangeImpact(BaseModel):
+    selected_id: str
+    selected_name: str
+    selected_type: str
+    selected_file: str
+    directly_connected: List[Dict[str, Any]] = []
+    used_by: List[Dict[str, Any]] = []
+    calls: List[Dict[str, Any]] = []
+    imports: List[Dict[str, Any]] = []
+    related_tests: List[Dict[str, Any]] = []
+
+
+class ExploreResponse(BaseModel):
+    repository_url: str
+    query: str
+    found_in: Dict[str, List[FoundItem]] = {}
+    selected_impact: Optional[ChangeImpact] = None
+    compact_subgraph: Optional[Dict[str, Any]] = None
+
 

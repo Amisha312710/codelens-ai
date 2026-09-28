@@ -293,6 +293,43 @@ export async function getWalkthrough(repoUrl, options = {}) {
 }
 
 /**
+ * Explores a repository to find feature implementations and assess change impact.
+ * Connects to POST /api/analysis/explore.
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @param {string} query - Natural language search query or symbol/file name
+ * @param {string} [selectedNodeId] - Optional node id for direct impact computation
+ * @returns {Promise<{repository_url: string, query: string, found_in: object, selected_impact: object, compact_subgraph: object}>}
+ */
+export async function exploreCodebase(repoUrl, query, selectedNodeId = null) {
+  const response = await fetch(`${API_BASE_URL}/analysis/explore`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: repoUrl,
+      query,
+      selected_node_id: selectedNodeId,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Explore request failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
  * Backward-compatible alias for getWalkthrough
  */
 export async function generateWalkthrough(repoUrl) {
@@ -313,4 +350,6 @@ export default {
   getFlowFunctions,
   getWalkthrough,
   generateWalkthrough,
+  exploreCodebase,
 };
+

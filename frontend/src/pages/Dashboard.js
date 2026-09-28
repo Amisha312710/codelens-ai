@@ -602,6 +602,16 @@ export default function Dashboard() {
                         Ask architectural questions grounded strictly in this repository's real source code
                       </div>
                     </div>
+
+                    <Link
+                      to="/ask"
+                      state={{ repoUrl, suggestedQuestions: overviewData?.suggested_questions }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                      title="Open full-page AI conversation workspace"
+                    >
+                      Open Dedicated Page &rarr;
+                    </Link>
                   </div>
 
                   <div className="ask-codelens-wrapper">

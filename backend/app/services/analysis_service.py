@@ -1001,6 +1001,450 @@ class AnalysisService:
             "suggested_questions": suggested_questions,
         }
 
+    def explore_codebase(
+        self,
+        repo_url: str,
+        query: str,
+        selected_node_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Orchestrates repository exploration by combining hybrid retrieval,
+        AST architecture graph relationships, and evidence-grounded impact analysis.
+        Does not invent relationships or hallucinate runtime behavior.
+        """
+        from fastapi import HTTPException
+        from app.services.search_service import SearchService
+
+        clean_url = (repo_url or "").strip()
+        if not clean_url:
+            raise HTTPException(status_code=400, detail="Repository URL cannot be empty.")
+
+        clean_query = (query or "").strip()
+        if not clean_query:
+            raise HTTPException(status_code=400, detail="Explore query cannot be empty.")
+
+        # 1. Acquire existing architecture graph
+        graph = self.build_architecture_graph(repo_url=clean_url)
+        all_nodes = graph.get("nodes", [])
+        all_edges = graph.get("edges", [])
+
+        nodes_by_id: Dict[str, Dict[str, Any]] = {n["id"]: n for n in all_nodes}
+
+        # 2. Run hybrid retrieval via existing SearchService
+        search_service = SearchService(db_session=self.db)
+        search_res = search_service.search_repository(
+            repo_url=clean_url,
+            query=clean_query,
+            top_k=10,
+        )
+        raw_candidates = search_res.get("results", [])
+
+        # 3. Direct identifier / symbol / filename matching in graph nodes
+        clean_target = clean_query.rstrip("()").strip().lower()
+        direct_matches: List[Dict[str, Any]] = []
+
+        for node in all_nodes:
+            n_name = (node.get("name") or "").lower()
+            n_file = (node.get("file_path") or "").lower()
+            n_type = node.get("type", "file")
+
+            file_basename = n_file.split("/")[-1]
+            if (
+                clean_target == n_name
+                or clean_target == file_basename
+                or clean_target == n_file
+                or (len(clean_target) > 3 and clean_target in n_name)
+            ):
+                direct_matches.append({
+                    "file_path": node.get("file_path"),
+                    "symbol_name": node.get("name"),
+                    "symbol_type": n_type,
+                    "start_line": node.get("start_line") or 1,
+                    "end_line": node.get("end_line") or 1,
+                    "similarity_score": 1.0,
+                    "retrieval_sources": ["direct_match"],
+                })
+
+        # Merge direct matches with search results, deduplicating by (file_path, symbol_name)
+        combined_candidates: List[Dict[str, Any]] = []
+        seen_keys: Set[tuple] = set()
+
+        for dm in direct_matches:
+            key = (dm["file_path"], dm.get("symbol_name"))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                combined_candidates.append(dm)
+
+        for sc in raw_candidates:
+            sim = sc.get("similarity_score")
+            # If similarity score is very low (< 0.22) and not structurally expanded, skip
+            if sim is not None and sim < 0.22 and "structural" not in sc.get("retrieval_sources", []):
+                continue
+            key = (sc["file_path"], sc.get("symbol_name"))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                combined_candidates.append(sc)
+
+        # 4. Evidence-based Categorization
+        def classify_category(file_path: str, sym_name: str) -> Optional[str]:
+            fp = (file_path or "").lower()
+            sym = (sym_name or "").lower()
+
+            if "test" in fp or fp.startswith("tests/") or fp.endswith("_test.py") or "test_" in fp:
+                return "Tests"
+
+            if any(fp.endswith(ext) for ext in [".jsx", ".tsx", ".vue", ".svelte", ".html", ".css"]) or "frontend/" in fp or "src/components/" in fp or "/ui/" in fp:
+                return "Frontend"
+
+            if (
+                any(p in fp for p in ["/api/", "/routes/", "/endpoints/", "/controllers/", "router.py", "routes.py", "endpoints.py"])
+                or any(kw in sym for kw in ["router", "endpoint", "route", "login", "register", "auth_token"])
+            ):
+                return "API"
+
+            if (
+                any(p in fp for p in ["/models/", "/db/", "/schemas/", "/repositories/", "/store/", "model.py", "models.py", "database.py", "repository.py", "schema.py"])
+                or any(kw in sym for kw in ["model", "schema", "table", "entity", "repository"])
+            ):
+                return "Database"
+
+            if any(p in fp for p in ["/utils/", "/util/", "/helpers/", "/helper/", "/config/", "/settings/", "utils.py", "helpers.py", "config.py"]):
+                return "Utilities"
+
+            if any(p in fp for p in ["/services/", "/service/", "/core/", "/domain/", "/pipeline/", "service.py", "core.py"]) or fp.endswith(".py"):
+                return "Backend"
+
+            return None
+
+        found_in: Dict[str, List[Dict[str, Any]]] = {}
+
+        for cand in combined_candidates:
+            fp = cand.get("file_path") or ""
+            sym = cand.get("symbol_name") or fp.split("/")[-1]
+            stype = cand.get("symbol_type") or "file"
+            s_line = cand.get("start_line")
+            e_line = cand.get("end_line")
+
+            cat = classify_category(fp, sym)
+            if not cat:
+                cat = "Backend" if fp.endswith(".py") else "Other"
+
+            sources = cand.get("retrieval_sources", ["semantic"])
+            if "direct_match" in sources:
+                evidence_reason = f"Exact repository match on symbol '{sym}'"
+            elif "structural" in sources and "semantic" in sources:
+                evidence_reason = "Confirmed by semantic relevance and call-graph connectivity"
+            elif "structural" in sources:
+                evidence_reason = "Connected via AST dependency to relevant workflow"
+            else:
+                score_pct = int((cand.get("similarity_score") or 0.75) * 100)
+                evidence_reason = f"Matched concept with {score_pct}% semantic relevance"
+
+            item_node_id = None
+            if stype == "function":
+                for nid, n in nodes_by_id.items():
+                    if n.get("type") == "function" and n.get("file_path") == fp and (n.get("name") == sym or n.get("name", "").endswith(f".{sym}")):
+                        item_node_id = nid
+                        break
+            elif stype == "class":
+                for nid, n in nodes_by_id.items():
+                    if n.get("type") == "class" and n.get("file_path") == fp and n.get("name") == sym:
+                        item_node_id = nid
+                        break
+            if not item_node_id:
+                item_node_id = f"file:{fp}"
+
+            item = {
+                "id": item_node_id,
+                "file_path": fp,
+                "symbol_name": sym,
+                "symbol_type": stype,
+                "start_line": s_line,
+                "end_line": e_line,
+                "category": cat,
+                "evidence_reason": evidence_reason,
+            }
+
+            found_in.setdefault(cat, []).append(item)
+
+        # 5. Determine Selected Item for Change Impact
+        selected_item = None
+        target_node_id = selected_node_id
+
+        if target_node_id and target_node_id in nodes_by_id:
+            for cat_items in found_in.values():
+                for itm in cat_items:
+                    if itm["id"] == target_node_id:
+                        selected_item = itm
+                        break
+                if selected_item:
+                    break
+
+            if not selected_item:
+                target_node = nodes_by_id[target_node_id]
+                selected_item = {
+                    "id": target_node_id,
+                    "file_path": target_node.get("file_path"),
+                    "symbol_name": target_node.get("name"),
+                    "symbol_type": target_node.get("type", "file"),
+                    "start_line": target_node.get("start_line"),
+                    "end_line": target_node.get("end_line"),
+                    "category": classify_category(target_node.get("file_path", ""), target_node.get("name", "")),
+                    "evidence_reason": "Directly inspected repository component",
+                }
+        else:
+            preferred_cats = ["API", "Backend", "Database", "Frontend", "Utilities", "Tests"]
+            for pcat in preferred_cats:
+                if pcat in found_in and found_in[pcat]:
+                    selected_item = found_in[pcat][0]
+                    target_node_id = selected_item["id"]
+                    break
+            if not selected_item:
+                for cat_items in found_in.values():
+                    if cat_items:
+                        selected_item = cat_items[0]
+                        target_node_id = selected_item["id"]
+                        break
+
+        # 6. Compute Change Impact from Actual Graph Relationships
+        selected_impact = None
+        compact_subgraph = None
+
+        if selected_item and target_node_id:
+            sel_file = selected_item["file_path"]
+            sel_name = selected_item["symbol_name"] or sel_file
+            sel_type = selected_item["symbol_type"]
+            sel_node_id = target_node_id
+            file_node_id = f"file:{sel_file}"
+
+            directly_connected: List[Dict[str, Any]] = []
+            used_by: List[Dict[str, Any]] = []
+            calls: List[Dict[str, Any]] = []
+            imports: List[Dict[str, Any]] = []
+            related_tests: List[Dict[str, Any]] = []
+
+            seen_conn: Set[str] = set()
+            seen_used: Set[str] = set()
+            seen_calls: Set[str] = set()
+            seen_imp: Set[str] = set()
+            seen_tests: Set[str] = set()
+
+            subgraph_nodes: Dict[str, Dict[str, Any]] = {}
+            subgraph_edges: List[Dict[str, Any]] = []
+
+            sel_node_obj = nodes_by_id.get(sel_node_id) or {
+                "id": sel_node_id,
+                "name": sel_name,
+                "type": sel_type,
+                "file_path": sel_file,
+            }
+            subgraph_nodes[sel_node_id] = {
+                "id": sel_node_id,
+                "name": sel_name,
+                "type": sel_type,
+                "file_path": sel_file,
+                "is_selected": True,
+            }
+
+            def is_test_node(n_id: str, f_path: str) -> bool:
+                p = (f_path or "").lower()
+                return "test" in p or p.startswith("tests/") or p.endswith("_test.py") or "test_" in p
+
+            for edge in all_edges:
+                e_type = edge.get("type")
+                src = edge.get("source")
+                tgt = edge.get("target")
+
+                src_node = nodes_by_id.get(src, {})
+                tgt_node = nodes_by_id.get(tgt, {})
+
+                src_file = src_node.get("file_path", "")
+                tgt_file = tgt_node.get("file_path", "")
+
+                # A. Directly Connected: contains
+                if e_type == "contains":
+                    if src == sel_node_id:
+                        c_id = tgt
+                        if c_id not in seen_conn and c_id != sel_node_id:
+                            seen_conn.add(c_id)
+                            directly_connected.append({
+                                "id": c_id,
+                                "name": tgt_node.get("name", c_id),
+                                "type": tgt_node.get("type", "symbol"),
+                                "file_path": tgt_file,
+                                "relation": "Contains",
+                            })
+                    elif tgt == sel_node_id:
+                        p_id = src
+                        if p_id not in seen_conn and p_id != sel_node_id:
+                            seen_conn.add(p_id)
+                            directly_connected.append({
+                                "id": p_id,
+                                "name": src_node.get("name", p_id),
+                                "type": src_node.get("type", "container"),
+                                "file_path": src_file,
+                                "relation": "Defined in",
+                            })
+
+                # B. Used by / Referenced by:
+                # Incoming calls
+                if e_type == "calls" and tgt == sel_node_id and src != sel_node_id:
+                    if is_test_node(src, src_file):
+                        if src not in seen_tests:
+                            seen_tests.add(src)
+                            related_tests.append({
+                                "id": src,
+                                "name": src_node.get("name", src),
+                                "type": src_node.get("type", "function"),
+                                "file_path": src_file,
+                                "relation": "Tests via call",
+                            })
+                    elif src not in seen_used:
+                        seen_used.add(src)
+                        used_by.append({
+                            "id": src,
+                            "name": src_node.get("name", src),
+                            "type": src_node.get("type", "function"),
+                            "file_path": src_file,
+                            "relation": "Called by",
+                        })
+                        subgraph_nodes[src] = {
+                            "id": src,
+                            "name": src_node.get("name", src),
+                            "type": src_node.get("type", "function"),
+                            "file_path": src_file,
+                        }
+                        subgraph_edges.append({
+                            "id": f"{src}->{sel_node_id}",
+                            "source": src,
+                            "target": sel_node_id,
+                            "relation": "calls",
+                        })
+
+                # Incoming imports
+                if e_type == "imports" and (tgt == file_node_id or tgt == sel_node_id) and src != file_node_id:
+                    if is_test_node(src, src_file):
+                        if src not in seen_tests:
+                            seen_tests.add(src)
+                            related_tests.append({
+                                "id": src,
+                                "name": src_node.get("name", src),
+                                "type": "file",
+                                "file_path": src_file,
+                                "relation": "Test imports module",
+                            })
+                    elif src not in seen_used:
+                        seen_used.add(src)
+                        used_by.append({
+                            "id": src,
+                            "name": src_node.get("name", src),
+                            "type": "file",
+                            "file_path": src_file,
+                            "relation": "Imported by",
+                        })
+                        subgraph_nodes[src] = {
+                            "id": src,
+                            "name": src_node.get("name", src),
+                            "type": "file",
+                            "file_path": src_file,
+                        }
+                        subgraph_edges.append({
+                            "id": f"{src}->{sel_node_id}",
+                            "source": src,
+                            "target": sel_node_id,
+                            "relation": "imports",
+                        })
+
+                # C. Calls: outgoing calls
+                if e_type == "calls" and src == sel_node_id and tgt != sel_node_id:
+                    if tgt not in seen_calls:
+                        seen_calls.add(tgt)
+                        calls.append({
+                            "id": tgt,
+                            "name": tgt_node.get("name", tgt),
+                            "type": tgt_node.get("type", "function"),
+                            "file_path": tgt_file,
+                            "relation": "Calls",
+                        })
+                        subgraph_nodes[tgt] = {
+                            "id": tgt,
+                            "name": tgt_node.get("name", tgt),
+                            "type": tgt_node.get("type", "function"),
+                            "file_path": tgt_file,
+                        }
+                        subgraph_edges.append({
+                            "id": f"{sel_node_id}->{tgt}",
+                            "source": sel_node_id,
+                            "target": tgt,
+                            "relation": "calls",
+                        })
+
+                # D. Imports: outgoing imports
+                if e_type == "imports" and (src == file_node_id or src == sel_node_id) and tgt != file_node_id:
+                    if tgt not in seen_imp:
+                        seen_imp.add(tgt)
+                        imports.append({
+                            "id": tgt,
+                            "name": tgt_node.get("name", tgt),
+                            "type": "file",
+                            "file_path": tgt_file,
+                            "relation": "Imports",
+                        })
+                        if len([n for n in subgraph_nodes.values() if n.get("type") == "file" and n["id"] != sel_node_id]) < 4:
+                            subgraph_nodes[tgt] = {
+                                "id": tgt,
+                                "name": tgt_node.get("name", tgt),
+                                "type": "file",
+                                "file_path": tgt_file,
+                            }
+                            subgraph_edges.append({
+                                "id": f"{sel_node_id}->{tgt}",
+                                "source": sel_node_id,
+                                "target": tgt,
+                                "relation": "imports",
+                            })
+
+            # Check for naming-based test files if no test edges found
+            if not related_tests:
+                base_stem = sel_file.split("/")[-1].replace(".py", "")
+                for nid, n in nodes_by_id.items():
+                    n_path = n.get("file_path", "")
+                    if is_test_node(nid, n_path) and base_stem in n_path:
+                        if nid not in seen_tests:
+                            seen_tests.add(nid)
+                            related_tests.append({
+                                "id": nid,
+                                "name": n.get("name", nid),
+                                "type": n.get("type", "file"),
+                                "file_path": n_path,
+                                "relation": "Related test suite",
+                            })
+
+            selected_impact = {
+                "selected_id": sel_node_id,
+                "selected_name": sel_name,
+                "selected_type": sel_type,
+                "selected_file": sel_file,
+                "directly_connected": directly_connected,
+                "used_by": used_by,
+                "calls": calls,
+                "imports": imports,
+                "related_tests": related_tests,
+            }
+
+            compact_subgraph = {
+                "nodes": list(subgraph_nodes.values()),
+                "edges": subgraph_edges,
+            }
+
+        return {
+            "repository_url": repo_url,
+            "query": query,
+            "found_in": found_in,
+            "selected_impact": selected_impact,
+            "compact_subgraph": compact_subgraph,
+        }
+
     def start_analysis(self, repository_id: int):
         raise NotImplementedError("AnalysisService.start_analysis is scheduled for future implementation.")
 

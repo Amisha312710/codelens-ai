@@ -5,6 +5,8 @@ from app.database import get_db
 from app.schemas.analysis import (
     AnalyzeCodeRequest,
     ArchitectureGraphResponse,
+    ExploreRequest,
+    ExploreResponse,
     FileASTAnalysisResult,
     FileSourceCodeRequest,
     FileSourceCodeResponse,
@@ -88,4 +90,23 @@ def get_project_overview(
     """
     service = AnalysisService(db_session=db)
     return service.get_project_overview(repo_url=payload.url)
+
+
+@router.post("/explore", response_model=ExploreResponse)
+def explore_repository_codebase(
+    payload: ExploreRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Explores feature location and change impact across the repository.
+    Combines hybrid retrieval, AST architecture graph relationships,
+    and verified dependency impact.
+    """
+    service = AnalysisService(db_session=db)
+    return service.explore_codebase(
+        repo_url=payload.url,
+        query=payload.query,
+        selected_node_id=payload.selected_node_id,
+    )
+
 
