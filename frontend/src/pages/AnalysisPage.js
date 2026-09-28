@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
-import { getArchitectureGraph } from '../services/api.js';
+import { getArchitectureGraph, resolveRepoUrl, setActiveRepoUrl } from '../services/api.js';
 import '../styles/analysis.css';
 
 /**
@@ -12,14 +12,10 @@ export default function AnalysisPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const repoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  const repoUrl = resolveRepoUrl(location);
   const repoName = repoUrl
-    .replace(/^https?:\/\/github\.com\//i, '')
-    .replace(/\/$/, '');
+    ? repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '').replace(/\/$/, '')
+    : 'No repository';
 
   const [progress, setProgress] = useState(15);
   const [currentTask, setCurrentTask] = useState('Acquiring repository...');
@@ -34,6 +30,12 @@ export default function AnalysisPage() {
   const hasTriggered = useRef(false);
 
   const startAnalysis = async () => {
+    if (!repoUrl) {
+      setError('No repository specified. Please enter a GitHub repository URL.');
+      setCurrentTask('Missing repository URL');
+      return;
+    }
+
     setError(null);
     setProgress(15);
     setCurrentTask('Acquiring repository...');
@@ -82,6 +84,7 @@ export default function AnalysisPage() {
 
       // Brief transition pause so user perceives completion
       setTimeout(() => {
+        setActiveRepoUrl(repoUrl);
         navigate('/dashboard', { state: { graphData: data, repoUrl } });
       }, 400);
     } catch (err) {

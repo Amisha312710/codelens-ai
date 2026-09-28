@@ -91,6 +91,15 @@ export default function AIChat({ repoUrl = '', onCitationClick, suggestedQuestio
   const [expandedEvidence, setExpandedEvidence] = useState({});
 
   const scrollRef = useRef(null);
+  const lastRepoRef = useRef(repoUrl);
+
+  // Reset chat session when repository changes
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      handleNewChat();
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
 
   useEffect(() => {
     if (scrollRef.current) {

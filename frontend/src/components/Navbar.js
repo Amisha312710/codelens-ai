@@ -1,22 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
+import { resolveRepoUrl } from '../services/api.js';
 
 /**
  * Reusable Navbar Component
  * Matches the Stitch dark premium developer-tool aesthetic.
- * Contains: CodeLens AI brand, navigation links (Overview, Ask AI, Code Flow, Walkthrough),
- * theme toggle (Light / Dark mode), and actions (GitHub, Sign In, Get Started).
+ * Contains: CodeLens AI brand, navigation links (Overview, Explore, Ask AI, Walkthrough),
+ * theme toggle (Light / Dark mode), active repository indicator with Switch action, and external GitHub link.
  */
 export default function Navbar() {
   const location = useLocation();
   const isLanding = location.pathname === "/";
 
-  // Single source of truth for active repository URL
-  const activeRepoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Single source of truth for active repository URL backed by localStorage
+  const [activeRepoUrl, setActiveRepoUrl] = useState(() => resolveRepoUrl(location));
+
+  useEffect(() => {
+    setActiveRepoUrl(resolveRepoUrl(location));
+  }, [location]);
+
+  useEffect(() => {
+    const handleRepoChange = (e) => {
+      const updated = (e?.detail?.repoUrl || '').trim();
+      setActiveRepoUrl(updated);
+    };
+    window.addEventListener('codelens-repo-change', handleRepoChange);
+    return () => window.removeEventListener('codelens-repo-change', handleRepoChange);
+  }, []);
 
   const repoState = activeRepoUrl ? { repoUrl: activeRepoUrl } : undefined;
 
@@ -94,8 +104,11 @@ export default function Navbar() {
                 <polyline points="16 18 22 12 16 6" />
                 <polyline points="8 6 2 12 8 18" />
               </svg>
-              <span className="repo-name">{displayRepoName}</span>
+              <span className="repo-name" title={activeRepoUrl}>{displayRepoName}</span>
               <span className="repo-branch">main</span>
+              <Link to="/" className="nav-repo-switch-btn" title="Switch or analyze another repository">
+                Switch
+              </Link>
             </div>
           )}
         </div>
@@ -175,12 +188,6 @@ export default function Navbar() {
           >
             GitHub
           </a>
-          <button type="button" className="btn btn-ghost nav-action-btn">
-            Sign In
-          </button>
-          <Link to="/" className="btn btn-primary nav-get-started-btn">
-            Get Started
-          </Link>
         </div>
       </div>
     </nav>

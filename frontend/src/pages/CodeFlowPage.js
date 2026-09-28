@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
 import CodeFlow from '../components/CodeFlow.js';
 import CodeViewer from '../components/CodeViewer.js';
-import { traceFlow, getFlowFunctions, getSourceCode } from '../services/api.js';
+import { traceFlow, getFlowFunctions, getSourceCode, resolveRepoUrl } from '../services/api.js';
 import '../styles/flow.css';
 
 /**
@@ -14,11 +14,9 @@ import '../styles/flow.css';
 export default function CodeFlowPage() {
   const location = useLocation();
 
-  const repoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Active repository URL resolved via single source of truth
+  const repoUrl = resolveRepoUrl(location);
+  const lastRepoRef = useRef(repoUrl);
 
   const [functionQuery, setFunctionQuery] = useState(
     location.state?.rootFunction || ''
@@ -37,12 +35,27 @@ export default function CodeFlowPage() {
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState(null);
 
+  // Wipe repository-specific state when switching repositories
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      setFlowData(null);
+      setSelectedNode(null);
+      setAvailableFunctions([]);
+      setFunctionQuery('');
+      sourceCacheRef.current.clear();
+      setCurrentSource({ code: '', language: 'python' });
+      setError(null);
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
+
   // Load available functions for the compact search control
   useEffect(() => {
+    if (!repoUrl) return;
     let isMounted = true;
     getFlowFunctions(repoUrl)
       .then((data) => {
-        if (isMounted && data.functions) {
+        if (isMounted && lastRepoRef.current === repoUrl && data.functions) {
           setAvailableFunctions(data.functions);
           // If no initial query, default to first non-test function
           if (!functionQuery && data.functions.length > 0) {
@@ -67,6 +80,11 @@ export default function CodeFlowPage() {
       const targetFunc = (fnName !== undefined ? fnName : functionQuery).trim();
       const targetDepth = depthVal !== undefined ? depthVal : maxDepth;
 
+      if (!repoUrl) {
+        setError('Please select and analyze a repository first.');
+        return;
+      }
+
       if (!targetFunc) {
         setError('Please select or enter a function to trace.');
         return;
@@ -77,18 +95,24 @@ export default function CodeFlowPage() {
 
       try {
         const data = await traceFlow(repoUrl, targetFunc, targetDepth);
-        setFlowData(data);
-        if (data.nodes && data.nodes.length > 0) {
-          setSelectedNode(data.nodes[0]);
-        } else {
-          setSelectedNode(null);
+        if (lastRepoRef.current === repoUrl) {
+          setFlowData(data);
+          if (data.nodes && data.nodes.length > 0) {
+            setSelectedNode(data.nodes[0]);
+          } else {
+            setSelectedNode(null);
+          }
         }
       } catch (err) {
-        setError(err.message || "We couldn't trace this function's flow.");
-        setFlowData(null);
-        setSelectedNode(null);
+        if (lastRepoRef.current === repoUrl) {
+          setError(err.message || "We couldn't trace this function's flow.");
+          setFlowData(null);
+          setSelectedNode(null);
+        }
       } finally {
-        setLoading(false);
+        if (lastRepoRef.current === repoUrl) {
+          setLoading(false);
+        }
       }
     },
     [repoUrl, functionQuery, maxDepth]
@@ -152,8 +176,23 @@ export default function CodeFlowPage() {
     <div className="flow-page">
       <Navbar />
 
-      {/* Header bar */}
-      <div className="flow-header-bar">
+      {!repoUrl ? (
+        <div style={{ textAlign: 'center', padding: '60px 24px', maxWidth: '540px', margin: '60px auto', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xl)' }}>
+          <div style={{ fontSize: '36px', marginBottom: '16px' }}>&#10555;</div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>
+            No Active Repository Selected
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
+            Please analyze a GitHub repository first to trace function call flows and inspect AST relationships.
+          </p>
+          <Link to="/" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: '13px', textDecoration: 'none' }}>
+            Analyze a Repository &rarr;
+          </Link>
+        </div>
+      ) : (
+        <>
+          {/* Header bar */}
+          <div className="flow-header-bar">
         <div className="flow-title-wrap">
           <div className="flow-tag-row">
             <span className="badge-ai" style={{ padding: '2px 8px', fontSize: '10px' }}>&bull; CODE FLOW</span>
@@ -366,6 +405,8 @@ export default function CodeFlowPage() {
           )}
         </aside>
       </div>
+      </>
+      )}
     </div>
   );
 }

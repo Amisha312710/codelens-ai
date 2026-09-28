@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar.js';
 import ArchitectureGraph from '../components/ArchitectureGraph.js';
 import CodeViewer from '../components/CodeViewer.js';
 import AIChat from '../components/AIChat.js';
-import { getArchitectureGraph, getSourceCode, getProjectOverview } from '../services/api.js';
+import { getArchitectureGraph, getSourceCode, getProjectOverview, resolveRepoUrl } from '../services/api.js';
 import '../styles/dashboard.css';
 import '../styles/ai.css';
 
@@ -16,16 +16,30 @@ import '../styles/ai.css';
 export default function Dashboard() {
   const location = useLocation();
 
-  const [graphData, setGraphData] = useState(location.state?.graphData || null);
-  const [overviewData, setOverviewData] = useState(
-    location.state?.graphData?.project_overview || null
-  );
+  const repoUrl = resolveRepoUrl(location);
+  const lastRepoRef = useRef(repoUrl);
+
+  const [graphData, setGraphData] = useState(() => {
+    const initial = location.state?.graphData;
+    if (initial && repoUrl && initial.repository_url && initial.repository_url !== repoUrl) {
+      return null;
+    }
+    return initial || null;
+  });
+  const [overviewData, setOverviewData] = useState(() => {
+    const initialGraph = location.state?.graphData;
+    if (initialGraph && repoUrl && initialGraph.repository_url && initialGraph.repository_url !== repoUrl) {
+      return null;
+    }
+    return initialGraph?.project_overview || null;
+  });
   const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'architecture'
   const [selectedNode, setSelectedNode] = useState(null);
-  const [loading, setLoading] = useState(!location.state?.graphData);
+  const [loading, setLoading] = useState(Boolean(repoUrl && !location.state?.graphData));
   const [error, setError] = useState(null);
   const [fileSearch, setFileSearch] = useState('');
   const [activeTab, setActiveTab] = useState('inspector');
+  const [isGraphExpanded, setIsGraphExpanded] = useState(false);
 
   // Source code state and in-memory cache to prevent redundant fetches
   const sourceCacheRef = useRef(new Map());
@@ -33,41 +47,62 @@ export default function Dashboard() {
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState(null);
 
-  const repoUrl = (
-    location.state?.repoUrl ||
-    location.state?.graphData?.repository_url ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Immediately clear repository-specific state when switching repositories
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      sourceCacheRef.current.clear();
+      setGraphData(null);
+      setOverviewData(null);
+      setSelectedNode(null);
+      setCurrentSource({ code: '', language: 'python' });
+      setError(null);
+      setFileSearch('');
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
 
   const repoName =
     overviewData?.repository_name ||
     graphData?.repository_name ||
-    repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '');
+    (repoUrl ? repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '') : 'No Repository');
 
   const loadGraph = useCallback(async () => {
+    if (!repoUrl) {
+      setLoading(false);
+      setGraphData(null);
+      setOverviewData(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const data = await getArchitectureGraph(repoUrl);
-      setGraphData(data);
-      if (data.project_overview) {
-        setOverviewData(data.project_overview);
-      } else {
-        try {
-          const ov = await getProjectOverview(repoUrl);
-          setOverviewData(ov);
-        } catch (_) {
-          // Graceful fallback
+      if (lastRepoRef.current === repoUrl) {
+        setGraphData(data);
+        if (data.project_overview) {
+          setOverviewData(data.project_overview);
+        } else {
+          try {
+            const ov = await getProjectOverview(repoUrl);
+            if (lastRepoRef.current === repoUrl) {
+              setOverviewData(ov);
+            }
+          } catch (_) {
+            // Graceful fallback
+          }
+        }
+        if (data.nodes && data.nodes.length > 0) {
+          setSelectedNode(data.nodes[0]);
         }
       }
-      if (data.nodes && data.nodes.length > 0) {
-        setSelectedNode(data.nodes[0]);
-      }
     } catch (err) {
-      setError(err.message || 'Failed to fetch architecture graph.');
+      if (lastRepoRef.current === repoUrl) {
+        setError(err.message || 'Failed to fetch architecture graph.');
+      }
     } finally {
-      setLoading(false);
+      if (lastRepoRef.current === repoUrl) {
+        setLoading(false);
+      }
     }
   }, [repoUrl]);
 
@@ -94,7 +129,11 @@ export default function Dashboard() {
   );
 
   useEffect(() => {
-    if (!graphData) {
+    if (!repoUrl) {
+      setLoading(false);
+      return;
+    }
+    if (!graphData || (graphData.repository_url && graphData.repository_url !== repoUrl)) {
       loadGraph();
     } else {
       if (!overviewData && graphData.project_overview) {
@@ -104,7 +143,18 @@ export default function Dashboard() {
         setSelectedNode(graphData.nodes[0]);
       }
     }
-  }, [graphData, selectedNode, overviewData, loadGraph]);
+  }, [repoUrl, graphData, selectedNode, overviewData, loadGraph]);
+
+  // Dismiss expanded graph view on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isGraphExpanded) {
+        setIsGraphExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isGraphExpanded]);
 
   // Retrieve source code whenever selectedNode changes
   useEffect(() => {
@@ -225,8 +275,25 @@ export default function Dashboard() {
     <div className="dashboard-page">
       <Navbar />
 
-      {/* Top Header & Navigation Action */}
-      <div className="dashboard-top-nav-bar">
+      {!repoUrl ? (
+        <main className="dashboard-overview-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+          <div style={{ textAlign: 'center', padding: '60px 24px', maxWidth: '540px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xl)' }}>
+            <div style={{ fontSize: '36px', marginBottom: '16px' }}>&#128506;</div>
+            <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px' }}>
+              No Active Repository Selected
+            </h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '24px' }}>
+              Please analyze a GitHub repository first to explore its architecture graph, file structure, and technical overview.
+            </p>
+            <Link to="/" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: '13px', textDecoration: 'none' }}>
+              Analyze a Repository &rarr;
+            </Link>
+          </div>
+        </main>
+      ) : (
+        <>
+          {/* Top Header & Navigation Action */}
+          <div className="dashboard-top-nav-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <a
             href={repoUrl}
@@ -724,6 +791,23 @@ export default function Dashboard() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsGraphExpanded(true)}
+                style={{
+                  fontSize: '11px',
+                  padding: '5px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+                title="Expand graph to full workspace"
+              >
+                <span style={{ fontSize: '12px' }}>&#x26F6;</span>
+                <span>Expand Graph</span>
+              </button>
+
               <Link
                 to="/flow"
                 className="btn btn-primary"
@@ -930,6 +1014,57 @@ export default function Dashboard() {
           )}
         </aside>
       </div>
+      )}
+      </>
+      )}
+
+      {/* Expanded Architecture Graph Modal Workspace */}
+      {isGraphExpanded && (
+        <div
+          className="graph-expanded-overlay"
+          onClick={() => setIsGraphExpanded(false)}
+        >
+          <div
+            className="graph-expanded-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="graph-expanded-header">
+              <div className="graph-expanded-title-group">
+                <span className="graph-expanded-title">Architecture Graph</span>
+                <span className="graph-badge">
+                  {graphData?.total_nodes ?? 0} nodes &bull; {graphData?.total_edges ?? 0} connections
+                </span>
+                {selectedNode && (
+                  <span className="graph-expanded-selected-chip">
+                    Selected: <strong>{selectedNode.name}</strong>{' '}
+                    <span style={{ color: 'var(--text-muted)' }}>({selectedNode.type})</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="graph-expanded-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary graph-expanded-close-btn"
+                  onClick={() => setIsGraphExpanded(false)}
+                  title="Close expanded view (Esc)"
+                >
+                  <span>Close</span>
+                  <span style={{ fontSize: '14px', lineHeight: 1 }}>&times;</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="graph-expanded-body">
+              <ArchitectureGraph
+                nodes={graphData?.nodes || []}
+                edges={graphData?.edges || []}
+                selectedNode={selectedNode}
+                onSelectNode={setSelectedNode}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

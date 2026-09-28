@@ -5,7 +5,7 @@ import Walkthrough from '../components/Walkthrough.js';
 import RemotionWalkthrough from '../components/RemotionWalkthrough.js';
 import CodeViewer from '../components/CodeViewer.js';
 import AIChat from '../components/AIChat.js';
-import { getWalkthrough, getSourceCode } from '../services/api.js';
+import { getWalkthrough, getSourceCode, resolveRepoUrl } from '../services/api.js';
 import '../styles/walkthrough.css';
 import '../styles/ai.css';
 
@@ -17,12 +17,9 @@ import '../styles/ai.css';
 export default function WalkthroughPage() {
   const location = useLocation();
 
-  // Active repository URL is derived strictly from location state or URL params (no sessionStorage)
-  const repoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Active repository URL resolved via single source of truth
+  const repoUrl = resolveRepoUrl(location);
+  const lastRepoRef = useRef(repoUrl);
 
   const normalizedRepoUrl = repoUrl.replace(/\.git$/i, '').replace(/\/+$/, '').toLowerCase();
 
@@ -47,6 +44,24 @@ export default function WalkthroughPage() {
 
   const abortControllerRef = useRef(null);
   const activeRequestTokenRef = useRef(0);
+
+  // Wipe repository-specific state when switching repositories
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      setWalkthroughData(null);
+      setSelectedConceptId(null);
+      setCustomImplementation(null);
+      setCustomChatQuestion(null);
+      setActiveDrawer('none');
+      sourceCacheRef.current.clear();
+      setCurrentSource({ code: '', language: 'python' });
+      setError(null);
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
 
   // Load walkthrough data from backend API with race-condition and cancellation guards
   const loadWalkthrough = useCallback(async () => {
@@ -185,7 +200,7 @@ export default function WalkthroughPage() {
 
   const repoName =
     walkthroughData?.project_title ||
-    repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '');
+    (repoUrl ? repoUrl.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, '') : '');
 
   return (
     <div className="app-container">
@@ -194,7 +209,8 @@ export default function WalkthroughPage() {
       <main className="walkthrough-page">
         <div className="walkthrough-container">
           {/* Top Navigation & Repository Pill */}
-          <div className="walkthrough-top-bar">
+          {repoUrl && (
+            <div className="walkthrough-top-bar">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <Link
                 to="/dashboard"
@@ -230,6 +246,7 @@ export default function WalkthroughPage() {
               Trace Code Flow &rarr;
             </Link>
           </div>
+          )}
 
           {/* Header Area */}
           <div className="walkthrough-header-area">

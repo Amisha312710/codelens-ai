@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
 import CodeViewer from '../components/CodeViewer.js';
-import { exploreCodebase, getSourceCode } from '../services/api.js';
+import { exploreCodebase, getSourceCode, resolveRepoUrl } from '../services/api.js';
 import '../styles/explore.css';
 
 /**
@@ -14,12 +14,9 @@ export default function ExplorePage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Active repository URL passed via route state or URL query parameter
-  const repoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Active repository URL resolved via single source of truth
+  const repoUrl = resolveRepoUrl(location);
+  const lastRepoRef = useRef(repoUrl);
 
   let displayRepoName = '';
   if (repoUrl) {
@@ -46,10 +43,29 @@ export default function ExplorePage() {
   const [sourceError, setSourceError] = useState(null);
   const sourceCacheRef = useRef(new Map());
 
+  // Wipe repository-specific state when switching repositories
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      setExploreData(null);
+      setSelectedNodeId(null);
+      setHasSearched(false);
+      setQuery('');
+      sourceCacheRef.current.clear();
+      setActiveSourceModal(null);
+      setSourceData({ code: '', language: 'python' });
+      setError(null);
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
+
   // Execute exploration query
   const handleSearch = useCallback(
     async (searchQuery, targetNodeId = null) => {
       const q = (searchQuery !== undefined ? searchQuery : query).trim();
+      if (!repoUrl) {
+        setError('Please select and analyze a repository first.');
+        return;
+      }
       if (!q) {
         setError('Please enter a feature, file, or symbol to explore.');
         return;
@@ -61,18 +77,24 @@ export default function ExplorePage() {
 
       try {
         const data = await exploreCodebase(repoUrl, q, targetNodeId);
-        setExploreData(data);
-        if (data.selected_impact?.selected_id) {
-          setSelectedNodeId(data.selected_impact.selected_id);
-        } else {
-          setSelectedNodeId(null);
+        if (lastRepoRef.current === repoUrl) {
+          setExploreData(data);
+          if (data.selected_impact?.selected_id) {
+            setSelectedNodeId(data.selected_impact.selected_id);
+          } else {
+            setSelectedNodeId(null);
+          }
         }
       } catch (err) {
-        setError(err.message || 'Failed to explore repository.');
-        setExploreData(null);
-        setSelectedNodeId(null);
+        if (lastRepoRef.current === repoUrl) {
+          setError(err.message || 'Failed to explore repository.');
+          setExploreData(null);
+          setSelectedNodeId(null);
+        }
       } finally {
-        setLoading(false);
+        if (lastRepoRef.current === repoUrl) {
+          setLoading(false);
+        }
       }
     },
     [repoUrl, query]

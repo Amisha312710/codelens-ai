@@ -329,6 +329,89 @@ export async function exploreCodebase(repoUrl, query, selectedNodeId = null) {
   return await response.json();
 }
 
+export const ACTIVE_REPO_STORAGE_KEY = 'codelens_active_repo';
+
+/**
+ * Retrieve the active repository URL from localStorage.
+ * @returns {string} Trimmed repository URL or empty string
+ */
+export function getActiveRepoUrl() {
+  try {
+    return (localStorage.getItem(ACTIVE_REPO_STORAGE_KEY) || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * Persist the active repository URL to localStorage and notify mounted components.
+ * @param {string} url - Repository URL
+ * @returns {string} Normalized repository URL
+ */
+export function setActiveRepoUrl(url) {
+  const clean = (url || '').trim();
+  try {
+    if (clean) {
+      localStorage.setItem(ACTIVE_REPO_STORAGE_KEY, clean);
+    } else {
+      localStorage.removeItem(ACTIVE_REPO_STORAGE_KEY);
+    }
+  } catch (_) {
+    // Ignore storage quota / privacy mode exceptions
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('codelens-repo-change', { detail: { repoUrl: clean } })
+    );
+  }
+
+  return clean;
+}
+
+/**
+ * Clear the active repository from persistent storage.
+ */
+export function clearActiveRepoUrl() {
+  return setActiveRepoUrl('');
+}
+
+/**
+ * Resolves the active repository URL for a page using a single source of truth:
+ * 1. Explicit location state (e.g. location.state?.repoUrl)
+ * 2. URL query param (e.g. ?repo=...)
+ * 3. localStorage (fallback and persistent source)
+ *
+ * If explicit input is found in the route or URL, localStorage is synchronized.
+ *
+ * @param {object} [location] - React Router location object
+ * @returns {string} Active repository URL
+ */
+export function resolveRepoUrl(location) {
+  let explicit = '';
+  if (location?.state?.repoUrl && typeof location.state.repoUrl === 'string') {
+    explicit = location.state.repoUrl.trim();
+  } else if (location?.state?.graphData?.repository_url && typeof location.state.graphData.repository_url === 'string') {
+    explicit = location.state.graphData.repository_url.trim();
+  } else if (typeof location?.search === 'string' && location.search) {
+    try {
+      const param = new URLSearchParams(location.search).get('repo');
+      if (param) explicit = param.trim();
+    } catch (_) {}
+  }
+
+  if (explicit) {
+    // Synchronize to localStorage if different from current stored value
+    const current = getActiveRepoUrl();
+    if (explicit !== current) {
+      setActiveRepoUrl(explicit);
+    }
+    return explicit;
+  }
+
+  return getActiveRepoUrl();
+}
+
 /**
  * Backward-compatible alias for getWalkthrough
  */
@@ -338,6 +421,11 @@ export async function generateWalkthrough(repoUrl) {
 
 export default {
   API_BASE_URL,
+  ACTIVE_REPO_STORAGE_KEY,
+  getActiveRepoUrl,
+  setActiveRepoUrl,
+  clearActiveRepoUrl,
+  resolveRepoUrl,
   getArchitectureGraph,
   getProjectOverview,
   getSourceCode,
@@ -352,4 +440,5 @@ export default {
   generateWalkthrough,
   exploreCodebase,
 };
+
 

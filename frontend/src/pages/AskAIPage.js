@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar.js';
 import AIChat from '../components/AIChat.js';
 import CodeViewer from '../components/CodeViewer.js';
-import { getProjectOverview, getSourceCode } from '../services/api.js';
+import { getProjectOverview, getSourceCode, resolveRepoUrl } from '../services/api.js';
 import '../styles/ai.css';
 
 /**
@@ -14,12 +14,9 @@ import '../styles/ai.css';
 export default function AskAIPage() {
   const location = useLocation();
 
-  // Active repository URL passed via route state or URL query parameter
-  const repoUrl = (
-    location.state?.repoUrl ||
-    new URLSearchParams(location.search).get('repo') ||
-    ''
-  ).trim();
+  // Active repository URL resolved via single source of truth
+  const repoUrl = resolveRepoUrl(location);
+  const lastRepoRef = useRef(repoUrl);
 
   let displayRepoName = '';
   if (repoUrl) {
@@ -41,6 +38,18 @@ export default function AskAIPage() {
   const [citationError, setCitationError] = useState(null);
   const sourceCacheRef = useRef(new Map());
 
+  // Wipe repository-specific state when switching repositories
+  useEffect(() => {
+    if (lastRepoRef.current && lastRepoRef.current !== repoUrl) {
+      setSuggestedQuestions([]);
+      setActiveCitation(null);
+      setCitationSource({ code: '', language: 'python' });
+      sourceCacheRef.current.clear();
+      setCitationError(null);
+    }
+    lastRepoRef.current = repoUrl;
+  }, [repoUrl]);
+
   // Fetch suggested questions if not provided in route state
   useEffect(() => {
     if (suggestedQuestions.length > 0 || !repoUrl) return;
@@ -48,7 +57,7 @@ export default function AskAIPage() {
     let isMounted = true;
     getProjectOverview(repoUrl)
       .then((overview) => {
-        if (isMounted && overview?.suggested_questions?.length) {
+        if (isMounted && lastRepoRef.current === repoUrl && overview?.suggested_questions?.length) {
           setSuggestedQuestions(overview.suggested_questions);
         }
       })

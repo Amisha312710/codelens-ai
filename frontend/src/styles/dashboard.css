@@ -859,3 +859,133 @@
   display: flex;
   flex-direction: column;
 }
+
+/* ==================================================
+   Expanded Architecture Graph Modal / Workspace Overlay
+   ================================================== */
+.graph-expanded-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: graphOverlayFadeIn 0.2s ease-out;
+}
+
+@keyframes graphOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.graph-expanded-modal {
+  width: 100%;
+  height: 100%;
+  max-width: 1700px;
+  max-height: 94vh;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: graphModalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes graphModalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.graph-expanded-header {
+  padding: 12px 20px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.graph-expanded-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.graph-expanded-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.graph-expanded-selected-chip {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-expanded-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graph-expanded-close-btn {
+  font-size: 12px;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.graph-expanded-body {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: var(--bg-primary);
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .graph-expanded-overlay {
+    padding: 8px;
+  }
+  .graph-expanded-modal {
+    max-height: 98vh;
+    border-radius: var(--radius-lg);
+  }
+  .graph-expanded-header {
+    padding: 10px 14px;
+  }
+}
+
