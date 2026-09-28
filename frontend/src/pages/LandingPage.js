@@ -9,7 +9,7 @@ import '../styles/landing.css';
  * Visual Source: Stitch Design Screen 1
  */
 export default function LandingPage() {
-  const [repoUrl, setRepoUrl] = useState('https://github.com/kennethreitz/samplemod');
+  const [repoUrl, setRepoUrl] = useState('');
   const navigate = useNavigate();
 
   const handleAnalyze = (e) => {

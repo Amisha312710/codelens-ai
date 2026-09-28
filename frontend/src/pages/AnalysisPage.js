@@ -12,8 +12,11 @@ export default function AnalysisPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const repoUrl =
-    location.state?.repoUrl || 'https://github.com/kennethreitz/samplemod';
+  const repoUrl = (
+    location.state?.repoUrl ||
+    new URLSearchParams(location.search).get('repo') ||
+    ''
+  ).trim();
   const repoName = repoUrl
     .replace(/^https?:\/\/github\.com\//i, '')
     .replace(/\/$/, '');

@@ -1,0 +1,9 @@
+{
+  "name": "codelens-backend-helpers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lightweight JS/TS AST parsing helper for CodeLens backend",
+  "dependencies": {
+    "@babel/parser": "^7.26.9"
+  }
+}

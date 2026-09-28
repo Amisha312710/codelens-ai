@@ -262,12 +262,41 @@ export async function getFlowFunctions(repoUrl) {
 }
 
 /**
- * Placeholder for generating developer video/scene walkthroughs
- * @param {string} repoId - Repository identifier
- * @param {object} options - Walkthrough generation configuration options
+ * Fetches the evidence-grounded Visual Walkthrough from the backend API
+ * @param {string} repoUrl - Public GitHub repository URL
+ * @returns {Promise<{repository_url: string, project_title: string, project_summary: string, overview_flow: Array<string>, walkthroughs: Array}>}
  */
-export async function generateWalkthrough(repoId, options = {}) {
-  throw new Error('generateWalkthrough not implemented yet. Backend integration will occur in Milestone 6+.');
+export async function getWalkthrough(repoUrl, options = {}) {
+  const response = await fetch(`${API_BASE_URL}/walkthroughs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: repoUrl }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Walkthrough request failed with status ${response.status}`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson.detail) {
+        errorDetail = errorJson.detail;
+      }
+    } catch (_) {
+      // Ignore JSON parse errors
+    }
+    throw new Error(errorDetail);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Backward-compatible alias for getWalkthrough
+ */
+export async function generateWalkthrough(repoUrl) {
+  return getWalkthrough(repoUrl);
 }
 
 export default {
@@ -282,5 +311,6 @@ export default {
   getFile,
   traceFlow,
   getFlowFunctions,
+  getWalkthrough,
   generateWalkthrough,
 };

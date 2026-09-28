@@ -33,10 +33,12 @@ export default function Dashboard() {
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState(null);
 
-  const repoUrl =
+  const repoUrl = (
     location.state?.repoUrl ||
     location.state?.graphData?.repository_url ||
-    'https://github.com/kennethreitz/samplemod';
+    new URLSearchParams(location.search).get('repo') ||
+    ''
+  ).trim();
 
   const repoName =
     overviewData?.repository_name ||
@@ -539,6 +541,15 @@ export default function Dashboard() {
                         Important execution flows traced directly from static AST calls &mdash; click Trace Flow to visualize each step
                       </div>
                     </div>
+
+                    <Link
+                      to="/walkthrough"
+                      state={{ repoUrl }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                    >
+                      Visual Walkthrough &rarr;
+                    </Link>
                   </div>
 
                   <div className="workflows-container">
@@ -558,14 +569,23 @@ export default function Dashboard() {
                           ))}
                         </div>
 
-                        <div style={{ marginTop: '8px' }}>
+                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
                           <Link
                             to="/flow"
                             state={{ repoUrl, rootFunction: wf.root_function }}
                             className="btn btn-primary"
-                            style={{ width: '100%', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px' }}
+                            style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px' }}
                           >
                             <span>&#9655;</span> Trace Code Flow
+                          </Link>
+                          <Link
+                            to="/walkthrough"
+                            state={{ repoUrl }}
+                            className="btn btn-secondary"
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', padding: '8px 12px' }}
+                            title="Interactive visual walkthrough"
+                          >
+                            Walkthrough &rarr;
                           </Link>
                         </div>
                       </div>
@@ -669,7 +689,7 @@ export default function Dashboard() {
               }}
               title={graphData?.repository_name || repoUrl}
             >
-              {graphData?.repository_name || 'samplemod'}
+              {graphData?.repository_name || repoName || 'Repository'}
             </span>
           </div>
         </aside>

@@ -1,0 +1,228 @@
+[
+  {
+    "name": "RagBot",
+    "url": "https://github.com/Hooman1996/RagBot",
+    "passed": true,
+    "reason_code": null,
+    "status_message": "Project story successfully reconstructed.",
+    "archetype": "web_api",
+    "confidence": "high",
+    "stages_count": 8,
+    "stages": [
+      {
+        "index": 1,
+        "id": "stage_1",
+        "title": "Api Sync Chunk Ingress",
+        "stage_type": "ingress",
+        "file_path": "kb_manager.py",
+        "symbol": "api_sync_chunk",
+        "start_line": 438,
+        "end_line": 486,
+        "role_badge": "INGRESS"
+      },
+      {
+        "index": 2,
+        "id": "stage_2",
+        "title": "Api Sync Chunk Execution",
+        "stage_type": "processing",
+        "file_path": "kb_manager.py",
+        "symbol": "api_sync_chunk",
+        "start_line": 438,
+        "end_line": 486,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 3,
+        "id": "stage_3",
+        "title": "Put Execution",
+        "stage_type": "processing",
+        "file_path": "training/intent_classifier/embedding_io.py",
+        "symbol": "put",
+        "start_line": 77,
+        "end_line": 81,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 4,
+        "id": "stage_4",
+        "title": "Fingerprint Execution",
+        "stage_type": "processing",
+        "file_path": "training/intent_classifier/embedding_io.py",
+        "symbol": "_fingerprint",
+        "start_line": 26,
+        "end_line": 30,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 5,
+        "id": "stage_5",
+        "title": "Normalize Persian Text Execution",
+        "stage_type": "processing",
+        "file_path": "utils/persian_normalization.py",
+        "symbol": "normalize_persian_text",
+        "start_line": 147,
+        "end_line": 154,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 6,
+        "id": "stage_6",
+        "title": "Normalize Persian Orthography Execution",
+        "stage_type": "processing",
+        "file_path": "utils/persian_normalization.py",
+        "symbol": "normalize_persian_orthography",
+        "start_line": 115,
+        "end_line": 144,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 7,
+        "id": "stage_7",
+        "title": "Normalize Unicode Spaces Execution",
+        "stage_type": "processing",
+        "file_path": "utils/persian_normalization.py",
+        "symbol": "_normalize_unicode_spaces",
+        "start_line": 76,
+        "end_line": 85,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 8,
+        "id": "stage_8",
+        "title": "Api Sync Chunk Egress",
+        "stage_type": "output",
+        "file_path": "kb_manager.py",
+        "symbol": "api_sync_chunk",
+        "start_line": 438,
+        "end_line": 486,
+        "role_badge": "EGRESS"
+      }
+    ]
+  },
+  {
+    "name": "FastAPI",
+    "url": "https://github.com/fastapi/fastapi",
+    "passed": true,
+    "reason_code": null,
+    "status_message": "Project story successfully reconstructed.",
+    "archetype": "web_api",
+    "confidence": "high",
+    "stages_count": 4,
+    "stages": [
+      {
+        "index": 1,
+        "id": "stage_1",
+        "title": "Websocket Route Ingress",
+        "stage_type": "ingress",
+        "file_path": "fastapi/applications.py",
+        "symbol": "websocket_route",
+        "start_line": 4645,
+        "end_line": 4652,
+        "role_badge": "INGRESS"
+      },
+      {
+        "index": 2,
+        "id": "stage_2",
+        "title": "Add Websocket Route Execution",
+        "stage_type": "processing",
+        "file_path": "fastapi/routing.py",
+        "symbol": "add_websocket_route",
+        "start_line": 2621,
+        "end_line": 2628,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 3,
+        "id": "stage_3",
+        "title": "Mark Routes Changed Execution",
+        "stage_type": "processing",
+        "file_path": "fastapi/routing.py",
+        "symbol": "_mark_routes_changed",
+        "start_line": 2570,
+        "end_line": 2571,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 4,
+        "id": "stage_4",
+        "title": "Websocket Route Egress",
+        "stage_type": "output",
+        "file_path": "fastapi/applications.py",
+        "symbol": "websocket_route",
+        "start_line": 4645,
+        "end_line": 4652,
+        "role_badge": "EGRESS"
+      }
+    ]
+  },
+  {
+    "name": "SampleMod",
+    "url": "https://github.com/kennethreitz/samplemod",
+    "passed": false,
+    "reason_code": "insufficient_stages",
+    "status_message": "Core workflow could not be reliably reconstructed from this repository."
+  },
+  {
+    "name": "StudyAI",
+    "url": "https://github.com/Amisha312710/StudyAI.git",
+    "passed": true,
+    "reason_code": null,
+    "status_message": "Project story successfully reconstructed.",
+    "archetype": "web_api",
+    "confidence": "high",
+    "stages_count": 4,
+    "stages": [
+      {
+        "index": 1,
+        "id": "stage_1",
+        "title": "Get Ai Strategy Ingress",
+        "stage_type": "ingress",
+        "file_path": "backend/routes/dashboard.py",
+        "symbol": "get_ai_strategy",
+        "start_line": 75,
+        "end_line": 113,
+        "role_badge": "INGRESS"
+      },
+      {
+        "index": 2,
+        "id": "stage_2",
+        "title": "Get Ai Strategy Execution",
+        "stage_type": "processing",
+        "file_path": "backend/routes/dashboard.py",
+        "symbol": "get_ai_strategy",
+        "start_line": 75,
+        "end_line": 113,
+        "role_badge": "PROCESSING"
+      },
+      {
+        "index": 3,
+        "id": "stage_3",
+        "title": "Get Ai Strategy External Service",
+        "stage_type": "external_call",
+        "file_path": "backend/routes/dashboard.py",
+        "symbol": "get_ai_strategy",
+        "start_line": 92,
+        "end_line": 106,
+        "role_badge": "HTTP_CLIENT"
+      },
+      {
+        "index": 4,
+        "id": "stage_4",
+        "title": "Get Ai Strategy Egress",
+        "stage_type": "output",
+        "file_path": "backend/routes/dashboard.py",
+        "symbol": "get_ai_strategy",
+        "start_line": 75,
+        "end_line": 113,
+        "role_badge": "EGRESS"
+      }
+    ]
+  },
+  {
+    "name": "Insufficient-Repo",
+    "url": "https://github.com/octocat/Hello-World",
+    "passed": false,
+    "reason_code": "no_facts",
+    "status_message": "Core workflow could not be reliably reconstructed from this repository."
+  }
+]

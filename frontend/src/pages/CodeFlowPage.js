@@ -14,8 +14,11 @@ import '../styles/flow.css';
 export default function CodeFlowPage() {
   const location = useLocation();
 
-  const repoUrl =
-    location.state?.repoUrl || 'https://github.com/kennethreitz/samplemod';
+  const repoUrl = (
+    location.state?.repoUrl ||
+    new URLSearchParams(location.search).get('repo') ||
+    ''
+  ).trim();
 
   const [functionQuery, setFunctionQuery] = useState(
     location.state?.rootFunction || ''
